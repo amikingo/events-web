@@ -1,0 +1,38 @@
+<!-- BEGIN:nextjs-agent-rules -->
+
+## This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->
+
+<!-- cheche-ui:rules:start (managed by `npx cheche-ui` — edit outside this block) -->
+## Cheche UI — how to build UI in this project
+
+This project uses the Cheche component library in `components/ui/` (tokens in `styles/tokens.css`, helpers in `lib/`). It implements the Cheche Brand Guideline exactly. **Use it; do not recreate it.**
+
+Before building any screen: pick components by case in `.cheche-ui/choosing.md` (which badge, input, card, dialog, toast, loader… for which situation), follow a recipe in `.cheche-ui/patterns.md`, and look each component up in `.cheche-ui/components.md` (every export, prop and default). In Claude Code, the `cheche-ui` skill does this for you.
+
+### Rules
+0. **Choose the variant by case, not by looks.** There are several badges, inputs, cards, dialogs, toasts and loaders; `.cheche-ui/choosing.md` says which one fits which situation (e.g. record state → `StatusPill`, role/category → neutral `Pill`, clickable filter → `Chip`, number on an icon → `CountBadge`). Read it before picking.
+1. **Components first.** If `components/ui/` has a component for it (button, input, select, table, modal, card, toast, tabs, sidebar…), import it. Never hand-write a button, input, card, table, modal, dropdown or badge with raw Tailwind.
+2. **Pass data and props, not markup.** Components own their layout, states and behavior. Customize through props (`columns`, `filters`, `rows`, `sections`, `loading`), not by wrapping and restyling. `className` is for placement (margins, grid span), never for colors, radii, shadows or font sizes.
+3. **Tokens only.** Colors, radii and shadows come from `styles/tokens.css` (`bg-surface`, `text-text-soft`, `border-border`, `bg-accent`, `rounded-md`, `shadow`). No hex values, no Tailwind default palette (`bg-gray-100`, `text-blue-600`), no arbitrary shadows. Text sizes use the `type-h1 … type-label` utilities.
+4. **Statuses are `StatusPill`.** `<StatusPill kind="booking|payment|stock|order|inspection|ticket|vehicle|account" status="…">`. Never pick a status color yourself.
+5. **Page shell.** Signed-in pages live inside `AppShell` + `Sidebar` + `Topbar` (already in `app/(dashboard)/layout.tsx` if the starter was used). Add a page by adding a folder and one `nav` entry.
+6. **Lists are `<Table>`.** Toolbar, search, pagination, sorting, phone cards and empty states come built in. Describe `columns` and pass `data`. Give a column a `filterValue` if its cell shows an element (a pill) so it can be filtered and searched.
+7. **Records follow the payments template** (`app/(dashboard)/payments/[[...slug]]/payments-view.tsx`): list → peek panel (no URL) → 360 page (`/things/[id]`) → create/edit full page (`/things/new`, `/things/[id]/edit`). Copy it for new record types. **Create/edit is a full page (`RecordForm`), viewing a record is the panel/page (`RecordWorkspace`), modals only confirm** (`ConfirmDialog`, `DestructiveDialog`, `AlertDialog`) **or pick/preview.** Delete, archive and block live on the record's page behind a confirm, never in a table row.
+8. **Loading and empty are designed states.** While loading pass `loading` (skeleton of the same shape); never show an empty state first, never a full-page spinner for one widget. Empty states name what is missing ("No bookings yet") with at most one primary action.
+9. **Feedback.** Success/failure after an action is `toast.success(...)` / `toast.error(...)` (one `<Toaster />` at the root). Inline form errors go through `Field error=…`.
+10. **Formats** come from `lib/format.ts`: `formatTime` (12-hour), `formatCurrency` (`2,550 ETB`), `formatDate` (Gregorian), `maskPhone`. Phone input is `PhoneInput`; money is `AmountInput`.
+11. **Copy follows the guideline's voice:** plain words, sentence case, one sentence of why, no "Oops", no exclamation marks, buttons name the action ("Create customer", not "Submit").
+12. **Dark mode is built in.** Never hand-roll a theme toggle or `dark:` styles: tokens switch automatically, and the avatar menu in `Topbar` has the Light / Dark / System switch (`ThemeSwitch` for a settings page).
+12b. **Icons** come from `components/ui/icons.tsx`. Do not add an icon library.
+13. **Client/server.** Components that use state start with `"use client"` already; pages that use them with hooks/handlers must be client components too.
+14. **Don't edit `components/ui/` to fit one screen.** If a component can't do what you need, say so and ask; a change there affects every project that shares the library.
+
+### Verify
+Run the project's typecheck and open the page at 375px wide and in dark mode before calling it done.
+<!-- cheche-ui:rules:end -->

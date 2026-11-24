@@ -1,0 +1,491 @@
+/**
+ * Cheche design tokens, copied 1:1 from the brand guideline's :root values
+ * (Cheche-Brand-Guideline-export.html, lines ~8-110). Import this once in
+ * your app root, after `@import "tailwindcss"`, so `--color-*` / `--radius-*`
+ * / `--shadow` become real Tailwind utilities (bg-accent, rounded-btn, shadow, ...).
+ *
+ * Fonts are not bundled — load Poppins (weights 400-700) and Noto Sans Ethiopic once in
+ * your app (the guideline uses Google Fonts); the stack falls back through system-ui.
+ *
+ * Same light/dark strategy as the guideline page itself: prefers-color-scheme
+ * by default, overridable with data-theme="light" | "dark" on <html>.
+ */
+
+@theme {
+  /* One typeface for Latin, one for Ge'ez (Poppins has no Ethiopic glyphs), system fallback. */
+  --font-sans: "Poppins", "Noto Sans Ethiopic", ui-sans-serif, system-ui, sans-serif;
+
+  /* Motion: hover/press/focus = fast, open/close = base, full-screen change = slow. Pick one of the three, never a number between. */
+  --default-transition-duration: 0.12s;
+  --default-transition-timing-function: ease;
+  --ease-slow: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  /* Toasts: slide in from the side on desktop (top-right) or down on phones (top-center), leave by collapsing, and the 2px timer line. */
+  --animate-toast-in: toast-in 0.26s cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-toast-down: toast-down 0.26s cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-toast-out: toast-out 0.2s ease forwards;
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateX(24px) scale(0.97); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes toast-down {
+    from { opacity: 0; transform: translateY(-16px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes toast-out {
+    to { opacity: 0; transform: translateY(-6px) scale(0.97); height: 0; margin: 0; padding: 0; }
+  }
+
+  /* Loading + empty states: shimmer, indeterminate bar, route-change top line, splash pulse, fade-up swap. */
+  --animate-skel: skel 1.4s ease infinite;
+  --animate-indet: indet 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  --animate-topline: topline 1.6s ease-out forwards;
+  --animate-splash-pulse: splash-pulse 1.8s ease-in-out infinite;
+  --animate-splash-ring: splash-ring 1.8s ease-out infinite;
+  --animate-emp-in: emp-in 0.25s ease;
+  --animate-ld-fade: emp-in 0.3s ease;
+  @keyframes skel {
+    to { background-position: -200% 0; }
+  }
+  @keyframes indet {
+    0% { left: -40%; }
+    100% { left: 100%; }
+  }
+  @keyframes topline {
+    0% { width: 0; }
+    30% { width: 55%; }
+    70% { width: 80%; }
+    100% { width: 92%; }
+  }
+  @keyframes splash-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.04); }
+  }
+  @keyframes splash-ring {
+    0% { transform: scale(1); opacity: 0.7; }
+    100% { transform: scale(1.6); opacity: 0; }
+  }
+  /* Modals: fade + 8px rise on open, sheets slide up, drawers slide in from the right. */
+  --animate-mdl-fade: mdl-fade 0.18s ease;
+  --animate-mdl-in: mdl-in 0.18s cubic-bezier(0.2, 0.7, 0.2, 1);
+  --animate-mdl-up: mdl-up 0.22s cubic-bezier(0.2, 0.7, 0.2, 1);
+  --animate-mdl-right: mdl-right 0.22s cubic-bezier(0.2, 0.7, 0.2, 1);
+  @keyframes mdl-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes mdl-in {
+    from { opacity: 0; transform: translateY(8px) scale(0.97); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes mdl-up {
+    from { transform: translateY(100%); }
+    to { transform: none; }
+  }
+  @keyframes mdl-right {
+    from { transform: translateX(100%); }
+    to { transform: none; }
+  }
+  /* A record that was just created flashes green, then settles (Detail view). */
+  --animate-flash-new: flash-new 2.6s ease;
+  @keyframes flash-new {
+    0%, 45% { background-color: color-mix(in srgb, var(--color-success) 14%, var(--color-surface)); }
+    100% { background-color: transparent; }
+  }
+  --animate-count-pop: count-pop 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  @keyframes count-pop {
+    0% { transform: scale(0.6); }
+    60% { transform: scale(1.2); }
+    100% { transform: scale(1); }
+  }
+  @keyframes emp-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+
+  /* Location pin drop + "you are here" pulse (#form-location). */
+  --animate-pin-drop: pin-drop 0.45s cubic-bezier(0.2, 0.7, 0.2, 1);
+  --animate-loc-pulse: loc-pulse 1.2s ease-out 2;
+  @keyframes pin-drop {
+    0% { transform: translateY(-18px) scale(0.9); opacity: 0; }
+    60% { transform: translateY(2px) scale(1.02); opacity: 1; }
+    100% { transform: none; }
+  }
+  @keyframes loc-pulse {
+    0% { transform: scale(0.4); opacity: 0.8; }
+    100% { transform: scale(2.4); opacity: 0; }
+  }
+
+  --color-bg: #fafafa;
+  --color-white: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-2: #f5f5f5;
+  --color-text: #1c1a1c;
+  --color-text-soft: #595959;
+  --color-text-faint: #6f6f6f;
+  --color-border: #e9e6e8;
+  --color-border-strong: #d6d6d6;
+  --color-accent: #e30074;
+  --color-accent-2: #f00a56;
+  --color-charcoal: #303030;
+  --color-danger: #e5484d;
+  --color-success: #1fae63;
+  --color-warning: #d98a00;
+
+  /* Red-Purple tints (Color Palette > Tints), neutrals, and the deep end of the gradients. */
+  --color-accent-80: #e8339a;
+  --color-accent-50: #f180bb;
+  --color-accent-20: #f9ccdf;
+  --color-accent-10: #fce5ef;
+  --color-accent-5: #fef4f9;
+  --color-accent-soft: #f3a9cb;
+  --color-accent-deep: #9d174d;
+  --color-accent-light: #ff8fc4;
+
+  /* Partner brand colors for the payment logos (.pay-logo). */
+  --color-telebirr: #1f8a4c;
+  --color-cbe: #6e2b8b;
+  --color-neutral-700: #595959;
+  --color-neutral-500: #979797;
+  --color-neutral-300: #d6d6d6;
+  --color-neutral-200: #eaeaea;
+  --color-neutral-100: #f5f5f5;
+
+  /* Hover wash on the dark snackbar's close button. */
+  --color-wash: rgba(127, 127, 127, 0.2);
+
+  /* Modal / sheet backdrop (.mdl-backdrop). */
+  --color-overlay: rgba(10, 8, 10, 0.6);
+  /* Lighter backdrop behind the mobile navigation drawer (.nav-backdrop). */
+  --color-overlay-nav: rgba(10, 8, 10, 0.45);
+  /* Darker backdrop behind the image / document lightbox (.mdl-overlay.dark). */
+  --color-overlay-dark: rgba(10, 8, 10, 0.88);
+  /* Lightbox document page: a sheet of paper that stays light in dark mode. */
+  --color-paper: #ffffff;
+  --color-paper-line: #e9e6e8;
+  --color-paper-ink: #1c1a1c;
+
+  /* accessible text/icon colors on their own tinted background, >=4.5:1 */
+  --color-success-text: #157543;
+  --color-warning-text: #8e5a00;
+  --color-danger-text: #b1383c;
+  --color-accent-text: #bb0060;
+
+  /* solid backgrounds under white text (buttons, solid pills, counts) */
+  --color-accent-fill: #e30074;
+  --color-success-fill: #18864c;
+  --color-warning-fill: #a46800;
+  --color-danger-fill: #d04246;
+
+  --color-input-border: #d6d6d6;
+  --color-focus-ring: #e30074;
+
+  /* overrides Tailwind's default radius scale with the guideline's own */
+  --radius-btn: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-full: 999px;
+
+  /* bare keys map to Tailwind's `shadow` / `shadow-raised` / `shadow-modal` utilities */
+  --shadow: 0 1px 2px rgba(28, 20, 24, 0.04), 0 6px 20px -8px rgba(28, 20, 24, 0.1);
+  --shadow-raised: 0 2px 4px rgba(28, 20, 24, 0.06), 0 14px 30px -12px rgba(28, 20, 24, 0.22);
+  --shadow-modal: 0 20px 50px -12px rgba(0, 0, 0, 0.4);
+
+  /* Control shadows the guideline repeats: field focus ring, the primary/danger button glow, the "today" ring. */
+  --shadow-focus: 0 0 0 3px color-mix(in srgb, var(--color-accent) 18%, transparent);
+  --shadow-focus-danger: 0 0 0 3px color-mix(in srgb, var(--color-danger) 18%, transparent);
+  --shadow-btn-accent: 0 1px 2px color-mix(in srgb, var(--color-accent) 20%, transparent);
+  --shadow-btn-accent-hover: 0 4px 12px -2px color-mix(in srgb, var(--color-accent) 35%, transparent);
+  --shadow-btn-danger: 0 1px 2px color-mix(in srgb, var(--color-danger) 20%, transparent);
+  --shadow-btn-danger-hover: 0 4px 12px -2px color-mix(in srgb, var(--color-danger) 35%, transparent);
+  --shadow-today: inset 0 0 0 1.5px var(--color-accent);
+  --shadow-thumb: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-snackbar: 0 10px 24px -10px rgba(0, 0, 0, 0.45);
+  --shadow-topline: 0 0 8px color-mix(in srgb, var(--color-accent) 60%, transparent);
+  --shadow-splash-mark: 0 20px 40px -16px rgba(0, 0, 0, 0.45);
+  --shadow-paper: 0 14px 30px -10px rgba(0, 0, 0, 0.5);
+  /* The 3px accent bar on a focused table row. */
+  --shadow-row-focus: inset 3px 0 0 var(--color-accent);
+  /* The record panel sliding over its list (Detail view). */
+  --shadow-panel: -16px 0 36px -18px rgba(28, 20, 24, 0.28);
+  --shadow-sheet: 0 -12px 40px -12px rgba(0, 0, 0, 0.35);
+  --shadow-drawer: -20px 0 50px -20px rgba(0, 0, 0, 0.4);
+  --shadow-pin: 1px 0 0 var(--color-border);
+  --shadow-flag: 0 0 0 1px rgba(0, 0, 0, 0.08);
+  --drop-shadow-pin: 0 4px 6px color-mix(in srgb, var(--color-accent) 35%, transparent);
+  --shadow-seg: 0 1px 2px rgba(28, 20, 24, 0.08);
+  --shadow-seg-accent: 0 1px 2px color-mix(in srgb, var(--color-accent) 30%, transparent);
+
+  /* Component corner radii the guideline uses besides btn/sm/md/lg/full. */
+  --radius-check: 5px;
+  --radius-cell: 7px;
+  --radius-popover: 10px;
+  --radius-flag: 2px;
+  --radius-line: 3px;
+  --radius-bar: 4px;
+  --radius-key: 2px;
+  --radius-item: 4px;
+  --radius-tile: 10px;
+  --radius-tile-lg: 14px;
+  --radius-thumb: 9px;
+  --radius-avatar: 18px;
+  --radius-road: 3px;
+  --radius-mark: 20px;
+}
+
+/*
+ * The toast's countdown line. This keyframe is used by name from an inline style (toast.tsx), not through an
+ * `--animate-*` variable, so it must live outside `@theme`: Tailwind drops keyframes in `@theme` that no utility uses,
+ * and the line then never shrinks.
+ */
+@keyframes toast-timer {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+/*
+ * Spacing: base unit 4px. xs 4 · sm 8 · ms 12 · md 16 · lg 24 · xl 32 · xxl 48.
+ * Tailwind's own scale already lands on these (1 · 2 · 3 · 4 · 6 · 8 · 12), so use ONLY those
+ * utilities for margin, padding and gap (p-1, gap-2, px-3, p-4, gap-6, p-8, py-12). ms (12px,
+ * Tailwind 3) is deliberately the one off-pattern step. These vars are for reference / non-Tailwind code.
+ */
+:root {
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-ms: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-xxl: 48px;
+
+  --motion-fast: 0.12s;
+  --motion-base: 0.2s;
+  --motion-slow: 0.35s;
+  /* The detail panel sliding over the list. */
+  --motion-panel: 0.26s;
+}
+
+/*
+ * Type scale (Typography > Type scale). Use these, never an off-scale size or a second typeface.
+ *   type-h1 Bold 22/28 · type-h2 SemiBold 19/26 · type-h3 Medium 16/22 · type-body 14/20
+ *   type-body-sm 12.5/18 · type-button Medium 14/20 · type-label SemiBold 11/16 caps +0.5px
+ */
+@utility type-h1 {
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 700;
+}
+@utility type-h2 {
+  font-size: 19px;
+  line-height: 26px;
+  font-weight: 600;
+}
+@utility type-h3 {
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 500;
+}
+@utility type-body {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
+}
+@utility type-body-sm {
+  font-size: 12.5px;
+  line-height: 18px;
+  font-weight: 400;
+}
+@utility type-button {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+}
+@utility type-label {
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Gradients (Color Palette > Gradients): One = mobile icon / wallet backgrounds, Two = admin accent and buttons. */
+@utility bg-gradient-one {
+  background-image: linear-gradient(90deg, #e30074 0%, #e30074 60%, #9d174d 100%);
+}
+@utility bg-gradient-splash {
+  background-image: linear-gradient(160deg, #e30074 0%, #9d174d 100%);
+}
+/* The skeleton shimmer track (Loading states): surface-2 → border → surface-2, 200% wide so it can slide. */
+@utility bg-shimmer {
+  background-image: linear-gradient(90deg, var(--color-surface-2) 25%, var(--color-border) 50%, var(--color-surface-2) 75%);
+  background-size: 200% 100%;
+}
+/* Card media areas (Content card): brand pink for services, charcoal for articles / help. */
+@utility bg-gradient-media {
+  background-image: linear-gradient(135deg, var(--color-accent-soft) 0%, var(--color-accent) 75%);
+}
+@utility bg-gradient-media-charcoal {
+  background-image: linear-gradient(135deg, var(--color-charcoal) 0%, #5a5a5a 100%);
+}
+@utility bg-gradient-two {
+  background-image: linear-gradient(90deg, #e30074 0%, #9d174d 100%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #141216;
+    --color-surface: #1d1a1f;
+    --color-surface-2: #242029;
+    --color-text: #f3f0f2;
+    --color-text-soft: #b8b1b8;
+    --color-text-faint: #908790;
+    --color-border: #332e36;
+    --color-border-strong: #413a42;
+    --color-accent: #ff4fa0;
+    --color-accent-2: #ff5c84;
+    --color-charcoal: #e8e6e8;
+    --color-danger: #ff6369;
+    --color-success: #3fc57f;
+    --color-warning: #f2a33a;
+    --color-success-text: #3fc57f;
+    --color-warning-text: #f2a33a;
+    --color-danger-text: #ff666c;
+    --color-accent-text: #ff5ca7;
+    --color-input-border: #413a42;
+    --color-focus-ring: #ff4fa0;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 30px -10px rgba(0, 0, 0, 0.6);
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-bg: #141216;
+  --color-surface: #1d1a1f;
+  --color-surface-2: #242029;
+  --color-text: #f3f0f2;
+  --color-text-soft: #b8b1b8;
+  --color-text-faint: #908790;
+  --color-border: #332e36;
+  --color-border-strong: #413a42;
+  --color-accent: #ff4fa0;
+  --color-accent-2: #ff5c84;
+  --color-charcoal: #e8e6e8;
+  --color-danger: #ff6369;
+  --color-success: #3fc57f;
+  --color-warning: #f2a33a;
+  --color-success-text: #3fc57f;
+  --color-warning-text: #f2a33a;
+  --color-danger-text: #ff666c;
+  --color-accent-text: #ff5ca7;
+  --color-input-border: #413a42;
+  --color-focus-ring: #ff4fa0;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 30px -10px rgba(0, 0, 0, 0.6);
+}
+
+/* Tailwind bakes the light `--shadow` into the `shadow` utility, so the guideline's darker resting shadow for dark mode is applied here, outside any layer so it wins. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .shadow {
+    --tw-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 30px -10px rgba(0, 0, 0, 0.6);
+  }
+}
+:root[data-theme="dark"] .shadow {
+  --tw-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 30px -10px rgba(0, 0, 0, 0.6);
+}
+
+/* The guideline's body: Poppins 15px / 1.6. Every row height, line-height and chip size in these components assumes it. */
+@layer base {
+  /* Native controls (date pickers, file inputs, selects, form scrollbars) follow the theme. */
+  :root {
+    color-scheme: light dark;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+  }
+
+  /* The one focus ring: 2px focus-ring outline, 2px offset, on every control. Components don't restyle it (menu rows etc. override only the offset). */
+  :where(
+    a,
+    button,
+    input,
+    select,
+    textarea,
+    summary,
+    [tabindex]:not([tabindex="-1"]),
+    [role="button"],
+    [role="option"],
+    [role="checkbox"],
+    [role="radio"],
+    [role="switch"],
+    [role="tab"],
+    [role="link"]
+  ):focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: 2px;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Scrollbars, as in the guideline (#scrollbars): one quiet style everywhere. */
+/* Chrome, Edge, Safari: 10px gutter, 4px rounded thumb (6px on hover, accent while dragging), transparent track. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--color-border-strong);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-text-faint);
+  border-width: 2px;
+}
+::-webkit-scrollbar-thumb:active {
+  background-color: var(--color-accent);
+  border-width: 2px;
+}
+/* Firefox: the standard properties, same colors, no hover growth. */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border-strong) transparent;
+  }
+}
+
+/* Everything respects reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Real map (location-map-leaflet.tsx): flip the light OSM tiles in dark mode so the map doesn't glare. */
+:root[data-theme="dark"] .cheche-map .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .cheche-map .leaflet-tile-pane {
+    filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9);
+  }
+}

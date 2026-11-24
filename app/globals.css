@@ -1,0 +1,173 @@
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Noto+Sans+Ethiopic:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+@import "../styles/tokens.css";
+@source "../components";
+
+/*
+ * Marketplace landing motion (app-level, not part of the shared library): slow, linear poster marquees.
+ * The shared reduced-motion rule in tokens.css cuts these to a single near-instant frame, so they stand still for
+ * anyone who prefers less motion.
+ */
+/* Scroll reveal (see components/marketplace/home/reveal.tsx): hidden blocks fade and lift in once. */
+[data-reveal] {
+  transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1), transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+[data-reveal="hidden"] {
+  opacity: 0;
+  transform: translateY(28px);
+}
+[data-reveal="shown"] {
+  opacity: 1;
+  transform: none;
+}
+
+@theme {
+  --animate-marquee-up: marquee-up 60s linear infinite;
+  --animate-marquee-down: marquee-down 60s linear infinite;
+  --animate-marquee-x: marquee-x 45s linear infinite;
+  /* Spotlight carousel: the active dot fills while the slide is on screen (duration set inline to match autoplay). */
+  --animate-slide-progress: slide-progress 6s linear forwards;
+  @keyframes slide-progress {
+    from { transform: scaleX(0); }
+    to { transform: scaleX(1); }
+  }
+  @keyframes marquee-up {
+    from { transform: translateY(0); }
+    to { transform: translateY(-50%); }
+  }
+  @keyframes marquee-down {
+    from { transform: translateY(-50%); }
+    to { transform: translateY(0); }
+  }
+  @keyframes marquee-x {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
+}
+
+/*
+ * Sign-in page motion (app-level, not part of the shared library): blur-in entrances, a rotating headline word,
+ * drifting aurora light and a floating ticket. The shared reduced-motion rule in tokens.css cuts every one of these
+ * to a single near-instant frame.
+ */
+@theme {
+  --animate-blur-in: blur-in 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+  --animate-word-cycle: word-cycle 13s cubic-bezier(0.7, 0, 0.2, 1) infinite;
+  --animate-aurora-a: aurora-a 22s ease-in-out infinite;
+  --animate-aurora-b: aurora-b 28s ease-in-out infinite;
+  --animate-shimmer: shimmer 6s linear infinite;
+  --animate-float: float 7s ease-in-out infinite;
+  @keyframes blur-in {
+    from { opacity: 0; transform: translateY(14px); filter: blur(10px); }
+    to { opacity: 1; transform: none; filter: blur(0); }
+  }
+  /* Five words and a copy of the first: each holds, then slides up one line; the copy makes the loop seamless. */
+  @keyframes word-cycle {
+    0%, 16% { transform: translateY(0); }
+    20%, 36% { transform: translateY(-16.6667%); }
+    40%, 56% { transform: translateY(-33.3333%); }
+    60%, 76% { transform: translateY(-50%); }
+    80%, 96% { transform: translateY(-66.6667%); }
+    100% { transform: translateY(-83.3333%); }
+  }
+  @keyframes aurora-a {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(-12%, 14%) scale(1.2); }
+  }
+  @keyframes aurora-b {
+    0%, 100% { transform: translate(0, 0) scale(1.1); }
+    50% { transform: translate(14%, -12%) scale(0.9); }
+  }
+  @keyframes shimmer {
+    from { background-position: 0% 50%; }
+    to { background-position: 200% 50%; }
+  }
+  @keyframes float {
+    0%, 100% { transform: translateY(0) rotate(-4deg); }
+    50% { transform: translateY(-12px) rotate(-2deg); }
+  }
+}
+
+/*
+ * Sign-in card edge: a 1px frame of light that slowly travels round the card (a conic gradient whose angle is animated
+ * through a registered custom property). Without @property support it simply stays a soft static pink edge.
+ */
+@property --auth-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+@keyframes auth-spin {
+  to { --auth-angle: 360deg; }
+}
+.auth-edge {
+  background:
+    conic-gradient(
+      from var(--auth-angle),
+      transparent 0deg,
+      color-mix(in srgb, var(--color-accent-light) 80%, transparent) 60deg,
+      color-mix(in srgb, white 95%, transparent) 90deg,
+      transparent 150deg,
+      transparent 210deg,
+      color-mix(in srgb, var(--color-accent-light) 80%, transparent) 260deg,
+      color-mix(in srgb, white 95%, transparent) 285deg,
+      transparent 340deg
+    ),
+    color-mix(in srgb, var(--color-accent-light) 28%, transparent);
+  animation: auth-spin 9s linear infinite;
+}
+
+/*
+ * Landing hero surface. The hero follows the theme: a near-black stage with frosted white glass in dark mode, a clean
+ * light stage with milky glass in light mode. Same switch as the guideline tokens (device setting, overridden by
+ * data-theme), so the theme toggle in the header changes it with everything else.
+ */
+:root {
+  --hero-bg: var(--color-bg);
+  --glass-top: 72%;
+  --glass-bottom: 42%;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --hero-bg: var(--color-paper-ink);
+    --glass-top: 14%;
+    --glass-bottom: 4%;
+  }
+}
+:root[data-theme="dark"] {
+  --hero-bg: var(--color-paper-ink);
+  --glass-top: 14%;
+  --glass-bottom: 4%;
+}
+
+/*
+ * Leaflet map (components/ui/location-map-leaflet.tsx). Leaflet ships its own light styling; these rules bring its controls onto the design tokens and
+ * `LeafletMap` carries `cheche-map`, which tokens.css uses to darken the OpenStreetMap tiles in dark mode.
+ */
+.leaflet-container {
+  font-family: inherit;
+  background: var(--color-surface-2);
+}
+.leaflet-container .leaflet-bar a,
+.leaflet-container .leaflet-bar a:hover {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border-bottom-color: var(--color-border);
+}
+.leaflet-container .leaflet-bar {
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow);
+}
+.leaflet-container .leaflet-control-attribution {
+  background: color-mix(in srgb, var(--color-surface) 82%, transparent) !important;
+  color: var(--color-text-soft);
+  font-size: 11px;
+}
+.leaflet-container .leaflet-control-attribution a {
+  color: var(--color-accent-text);
+}
+.cheche-map-pin {
+  background: none;
+  border: 0;
+  filter: drop-shadow(0 3px 4px color-mix(in srgb, var(--color-text) 35%, transparent));
+}
