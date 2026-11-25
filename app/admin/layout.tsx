@@ -25,9 +25,16 @@ import {
 import { Sidebar, SidebarGroup, SidebarItem } from "../../components/ui/sidebar";
 import { Topbar } from "../../components/ui/topbar";
 import { toast } from "../../components/ui/toaster";
-import { DOMAIN_PROFILES, ORGANIZATIONS, getBreadcrumbTrail } from "../../lib/config/brandos-config";
+import { DOMAIN_PROFILES, getBreadcrumbTrail } from "../../lib/config/brandos-config";
+import { apiNavItems, apiNavPages } from "../../lib/config/api-navigation";
 import { getNavSections, getSearchCommands } from "../../lib/config/navigation";
+import type { NavSection } from "../../lib/config/navigation";
 import { authService } from "@/app/auth/staff/auth-service";
+import { staffSession } from "@/app/auth/staff/staff-store";
+import { describeApiError } from "@/lib/api/errors";
+import { describeAssignment, useSessionRoles } from "@/lib/api/session-store";
+import { useStorageStore } from "@/lib/marketplace/storage-store";
+import { useNavigation, usePermissions } from "@/lib/services/permissions-service";
 import { notificationsService } from "../../lib/services/notifications-service";
 import type { BusinessDomain, User } from "../../types";
 
@@ -57,7 +64,9 @@ function SidebarNav({ activeDomainId }: { activeDomainId: BusinessDomain }) {
   const { collapsed } = useAppShell();
   const pathname = usePathname();
   const router = useRouter();
-  const sections = getNavSections(activeDomainId);
+  // "Administration" is the API's own menu for the role in use: only what it may view, and only pages built here.
+  const administration = apiNavItems(useNavigation());
+  const sections: NavSection[] = [...getNavSections(activeDomainId), ...(administration.length ? [{ name: "Administration" as const, items: administration }] : [])];
   const isCurrent = (href: string) => pathname === href || (href !== "/admin/dashboard" && pathname.startsWith(href));
 
   return (
@@ -65,7 +74,7 @@ function SidebarNav({ activeDomainId }: { activeDomainId: BusinessDomain }) {
       {sections.map((section, idx) => (
         <div key={section.name} className="flex flex-col gap-[3px]">
           {!collapsed ? (
-            <div className="px-3 pb-1 pt-2 type-label text-text-faint select-none">{section.name === "Core" ? "Workspaces" : "Platform"}</div>
+            <div className="px-3 pb-1 pt-2 type-label text-text-faint select-none">{section.name === "Core" ? "Workspaces" : section.name}</div>
           ) : (
             idx > 0 && <div className="mx-auto my-1.5 w-6 border-t border-border" />
           )}
@@ -94,7 +103,11 @@ function DashboardShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [user, setUser] = useState<User | null>(null);
-  const [activeOrg, setActiveOrg] = useState("ORG-101");
+  const staff = useStorageStore(staffSession);
+  const roles = useSessionRoles();
+  // Reads `/me`. After a page reload this is also what gets a new access token, which fills in `roles`.
+  const { can } = usePermissions();
+  const apiPages = apiNavPages(useNavigation());
   const [activeDomainId, setActiveDomainId] = useState<BusinessDomain>("enterprise");
   const [unreadNotifications, setUnreadNotifications] = useState(0);
 
@@ -114,6 +127,24 @@ function DashboardShell({ children }: { children: ReactNode }) {
     }
   }, [router]);
 
+  // The session can end while the page is open (the refresh cookie expired, or signed out in another tab).
+  useEffect(() => {
+    if (staff === null) router.replace("/auth");
+  }, [staff, router]);
+
+  async function switchRole(assignmentId: string) {
+    if (assignmentId === roles.currentId) return;
+    try {
+      await authService.switchAssignment(assignmentId);
+      const next = roles.assignments.find((a) => a.id === assignmentId);
+      toast.success(`Now working as ${next ? describeAssignment(next) : "the new role"}`);
+      // Everything on screen belonged to the old role, so start from the dashboard.
+      router.push("/admin/dashboard");
+    } catch (e) {
+      toast.error("Couldn't switch role", { body: describeApiError(e) });
+    }
+  }
+
   const breadcrumbItems = getBreadcrumbTrail(pathname);
 
   return (
@@ -127,16 +158,24 @@ function DashboardShell({ children }: { children: ReactNode }) {
       }
       topbar={
         <Topbar
-          organization={{
-            organizations: ORGANIZATIONS.map((o) => ({ value: o.value, label: o.shortLabel })),
-            value: activeOrg,
-            onValueChange: (val) => {
-              setActiveOrg(val);
-              toast.info(`Switched to ${ORGANIZATIONS.find((o) => o.value === val)?.label ?? "the organization"}`);
-            },
-          }}
+          // The role switcher: only for people who hold more than one role. Permissions follow the role in use.
+          organization={
+            roles.assignments.length > 1 && roles.currentId
+              ? {
+                  organizations: roles.assignments.map((a) => ({ value: a.id, label: describeAssignment(a) })),
+                  value: roles.currentId,
+                  onValueChange: (id) => void switchRole(id),
+                }
+              : undefined
+          }
           search={{
-            items: getSearchCommands().map((c) => ({ id: c.id, title: c.title, group: c.group })),
+            items: [
+              ...getSearchCommands().map((c) => ({ id: c.id, title: c.title, group: c.group })),
+              // Pages and actions the role in use may open, from the API's menu and permissions.
+              ...apiPages.map((p) => ({ id: p.href, title: p.label, group: "Navigation" as const })),
+              ...(can("ORGANIZATIONS", "create") ? [{ id: "/admin/organizations/new", title: "Add an organization", group: "Actions" as const }] : []),
+              ...(can("BRANCHES", "create") ? [{ id: "/admin/branches/new", title: "Add a branch", group: "Actions" as const }] : []),
+            ],
             onSelect: (item) => router.push(item.id),
             placeholder: "Search pages, actions, payments…",
           }}

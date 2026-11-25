@@ -14,7 +14,8 @@ import {
 export type { NavItemConfig, SearchCommandItem };
 
 export interface NavSection {
-  name: "Core" | "Platform";
+  /** "Administration" is not configured here: it comes from the API's menu (`lib/config/api-navigation.ts`). */
+  name: "Core" | "Platform" | "Administration";
   items: NavItemConfig[];
 }
 
