@@ -1,0 +1,16 @@
+node_modules
+.next
+out
+coverage
+.git
+.github
+.vscode
+.idea
+.claude
+.cursor
+*.log
+*.pem
+*.cheche-backup
+# Secrets never enter the image
+.env
+.env.*
