@@ -73,6 +73,7 @@ export const registrationQk = {
 export const roleQk = {
   all: (organizationId: string) => ["roles", organizationId] as const,
   list: (organizationId: string) => ["roles", organizationId, "list"] as const,
+  detail: (organizationId: string, roleId: string) => ["roles", organizationId, "detail", roleId] as const,
 };
 
 export const staffQk = {

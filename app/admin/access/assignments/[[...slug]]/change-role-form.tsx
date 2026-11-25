@@ -80,7 +80,7 @@ export function ChangeRoleForm({ assignment, personName, roles, branches, onSubm
           <CardHeader title="Role" subtitle="What they can see and do here." />
           <div className="flex flex-col gap-4">
             <Field label="Role" htmlFor="cr-role" required>
-              <Select id="cr-role" options={roles.filter((r) => r.is_active || r.id === assignment.role.id).map((r) => ({ value: r.id, label: r.name }))} value={roleId} onValueChange={setRoleId} />
+              <Select id="cr-role" placeholder="Choose an active role" options={roles.filter((r) => r.is_active).map((r) => ({ value: r.id, label: r.name }))} value={roleId} onValueChange={setRoleId} />
             </Field>
             {branches && (
               <Field label="Where" htmlFor="cr-where" hint="One branch only, or the whole organization.">

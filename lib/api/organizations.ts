@@ -2,9 +2,10 @@
  * Organizations (module ORGANIZATIONS).
  *
  *   GET   /v1/organizations                    (platform roles)
- *   POST  /v1/organizations                    (platform roles)
+ *   POST  /v1/organizations                    (platform roles; optional owner_mobile)
  *   GET   /v1/organizations/:organizationId
- *   PATCH /v1/organizations/:organizationId    (defaults: country, timezone, default_currency)
+ *   PATCH /v1/organizations/:organizationId    (name, description, country, timezone, default_currency)
+ *   PATCH /v1/organizations/:organizationId/status  (platform Super Admin only)
  */
 import { apiListAll, apiPage, apiRequest, clampPageSize } from "@/lib/api-client";
 import type { Paginated } from "@/lib/api-client";
@@ -27,15 +28,22 @@ export interface Organization {
   updated_at: string;
 }
 
-export interface OrganizationDefaults {
+export interface OrganizationUpdateInput {
+  name?: string;
+  description?: string | null;
   country?: string;
   timezone?: string;
   default_currency?: string;
 }
 
-/** `PATCH /v1/organizations/{id}`: the organization's defaults only. */
-export function updateOrganizationDefaults(organizationId: string, changes: OrganizationDefaults): Promise<Organization> {
+/** `PATCH /v1/organizations/{id}`: name, description and defaults for new events. Slug never changes. */
+export function updateOrganization(organizationId: string, changes: OrganizationUpdateInput): Promise<Organization> {
   return apiRequest<Organization>(`/v1/organizations/${organizationId}`, { method: "PATCH", body: changes });
+}
+
+/** Platform Super Admin only: switches an organization off or back on. */
+export function setOrganizationActive(organizationId: string, isActive: boolean): Promise<Organization> {
+  return apiRequest<Organization>(`/v1/organizations/${organizationId}/status`, { method: "PATCH", body: { is_active: isActive } });
 }
 
 export interface OrganizationInput {
@@ -47,6 +55,8 @@ export interface OrganizationInput {
   hasBranches?: boolean;
   /** The first branch. Leave out to get a branch called MAIN. Both fields are needed together. */
   defaultBranch?: { code: string; name: string };
+  /** Optional first Owner's mobile (`09…` or `+251…`). Looked up in Cheche accounts before creating. */
+  ownerMobile?: string;
 }
 
 export interface OrganizationListParams {
@@ -75,13 +85,14 @@ export function getOrganization(organizationId: string, signal?: AbortSignal): P
   return apiRequest<Organization>(`/v1/organizations/${organizationId}`, { signal });
 }
 
-/** Platform roles only. Also creates the first branch. */
-export function createOrganization(input: OrganizationInput): Promise<{ organization: Organization; branches: Branch[] }> {
+/** Platform roles only. Also creates the first branch and, when `ownerMobile` is given, the first Owner. */
+export function createOrganization(input: OrganizationInput): Promise<{ organization: Organization; branches: Branch[]; owner: { user_id: string; assignment_id: string } | null }> {
   return apiRequest("/v1/organizations", {
     method: "POST",
     body: {
       organization: { name: input.name, slug: input.slug, description: input.description, has_branches: input.hasBranches },
       ...(input.defaultBranch ? { default_branch: input.defaultBranch } : {}),
+      ...(input.ownerMobile ? { owner_mobile: input.ownerMobile } : {}),
     },
   });
 }

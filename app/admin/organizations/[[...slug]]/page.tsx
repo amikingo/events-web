@@ -6,8 +6,9 @@ import { Suspense, useEffect, useState } from "react";
 import { Can, useModuleAccess } from "@/components/ability-provider";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog, DestructiveDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
-import { BuildingIcon, PlusIcon } from "@/components/ui/icons";
+import { BuildingIcon, PlusIcon, UserIcon } from "@/components/ui/icons";
 import { Pill } from "@/components/ui/pill";
 import { RecordHeading, RecordKv, RecordRailCard, RecordRows } from "@/components/ui/record-view";
 import { RecordWorkspace, parseRecordPath, recordPath } from "@/components/ui/record-workspace";
@@ -15,16 +16,18 @@ import { Skeleton, SkeletonStack } from "@/components/ui/skeleton";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Table } from "@/components/ui/table";
 import type { ColumnDef } from "@/components/ui/table";
+import { toast } from "@/components/ui/toaster";
 import { listAllBranches } from "@/lib/api/branches";
 import { describeApiError } from "@/lib/api/errors";
-import { createOrganization, getOrganization, listOrganizations, updateOrganizationDefaults } from "@/lib/api/organizations";
-import type { Organization, OrganizationInput } from "@/lib/api/organizations";
+import { createOrganization, getOrganization, listOrganizations, setOrganizationActive, updateOrganization } from "@/lib/api/organizations";
+import type { Organization, OrganizationInput, OrganizationUpdateInput } from "@/lib/api/organizations";
+import { listStaffAssignments } from "@/lib/api/staff";
+import { useAuth } from "@/lib/auth-context";
 import { MODULE_CODES } from "@/lib/constants/modules";
 import { formatDate } from "@/lib/format";
 import { useOrganization } from "@/lib/organization-context";
-import { branchQk, organizationQk } from "@/lib/query-keys";
+import { branchQk, organizationQk, staffQk } from "@/lib/query-keys";
 import { OrganizationForm } from "./organization-form";
-import { toast } from "@/components/ui/toaster";
 
 const BASE = "/admin/organizations";
 const MODULE = MODULE_CODES.ORGANIZATIONS;
@@ -59,9 +62,6 @@ const columns: ColumnDef<Organization>[] = [
   { key: "status", header: "Status", filterValue: (r) => (r.is_active ? "active" : "inactive"), render: (r) => <StatusPill kind="account" status={r.is_active ? "active" : "inactive"} /> },
   { key: "created", header: "Created", sortable: true, filterValue: (r) => r.created_at, accessor: (r) => formatDate(r.created_at) },
 ];
-
-
-
 
 /** Change the address without rebuilding the page (so a record page loads once). */
 function go(path: string) {
@@ -111,14 +111,67 @@ function OrganizationBranches({ organizationId }: { organizationId: string }) {
   );
 }
 
+/** The Staff Assignments tab of an organization's page, showing its assigned staff including the Owner. */
+function OrganizationStaff({ organizationId }: { organizationId: string }) {
+  const params = { page: 1, pageSize: 50 };
+  const query = useQuery({
+    queryKey: staffQk.list(organizationId, params),
+    queryFn: ({ signal }) => listStaffAssignments(organizationId, params, signal),
+  });
+
+  if (query.isPending) {
+    return (
+      <SkeletonStack>
+        <Skeleton shape="block" />
+        <Skeleton shape="block" />
+      </SkeletonStack>
+    );
+  }
+  if (query.isError) {
+    return <EmptyState size="sm" tone="danger" title="We couldn't load the staff" description={describeApiError(query.error, "person")} />;
+  }
+  const staff = query.data?.data ?? [];
+  if (staff.length === 0) {
+    return <EmptyState size="sm" icon={<UserIcon />} title="No staff yet" description="Add staff in Staff Assignments." />;
+  }
+  return (
+    <div>
+      <RecordHeading>Staff Assignments</RecordHeading>
+      <RecordRows
+        rows={staff.map((a) => {
+          const name = a.profile ? [a.profile.firstname, a.profile.middlename, a.profile.lastname].filter(Boolean).join(" ") : "";
+          return {
+            title: name || a.profile?.mobile || "Name unavailable",
+            meta: (
+              <>
+                {a.profile?.mobile ? `${a.profile.mobile} · ` : ""}
+                {a.branch?.name ?? "Whole organization"}
+              </>
+            ),
+            trailing: (
+              <span className="flex items-center gap-2">
+                <Pill>{a.role.name}</Pill>
+                <StatusPill kind="account" status={a.is_active ? "active" : "inactive"} />
+              </span>
+            ),
+          };
+        })}
+      />
+    </div>
+  );
+}
+
 function OrganizationsView() {
   const pathname = usePathname();
   const queryClient = useQueryClient();
   const { can } = useModuleAccess();
+  const { assignment } = useAuth();
   const { isPlatform, organizationId: ownOrganizationId } = useOrganization();
+  const isSuperAdmin = assignment !== null && assignment.organizationId === null;
   const location = parseRecordPath(BASE, pathname);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [statusTarget, setStatusTarget] = useState<{ organization: Organization; isActive: boolean } | null>(null);
   const params = { page, pageSize };
 
   // A platform role is not tied to an organization and sees them all, a page at a time. A tenant role sees only its own.
@@ -155,12 +208,27 @@ function OrganizationsView() {
   const saved = () => void queryClient.invalidateQueries({ queryKey: organizationQk.all() });
 
   const create = useMutation({
-    mutationFn: async (input: OrganizationInput) => (await createOrganization(input)).organization,
-    onSuccess: saved,
+    mutationFn: (input: OrganizationInput) => createOrganization(input),
+    onSuccess: (created) => {
+      saved();
+      void queryClient.invalidateQueries({ queryKey: staffQk.all(created.organization.id) });
+    },
   });
   const update = useMutation({
-    mutationFn: ({ id, changes }: { id: string; changes: Parameters<typeof updateOrganizationDefaults>[1] }) => updateOrganizationDefaults(id, changes),
+    mutationFn: ({ id, changes }: { id: string; changes: OrganizationUpdateInput }) => updateOrganization(id, changes),
     onSuccess: saved,
+  });
+  const toggleStatus = useMutation({
+    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) => setOrganizationActive(id, isActive),
+    onSuccess: (updated) => {
+      saved();
+      setStatusTarget(null);
+      toast.success(updated.is_active ? "Organization switched on" : "Organization switched off");
+    },
+    onError: (err) => {
+      setStatusTarget(null);
+      toast.error(describeApiError(err, "organization"));
+    },
   });
 
   if (source.isError) {
@@ -176,6 +244,7 @@ function OrganizationsView() {
   }
 
   const canUpdate = can("update", MODULE);
+  const canViewStaff = can("read", MODULE_CODES.USER_ROLES);
   const newOrganization = (label: string, icon = false) =>
     isPlatform ? (
       <Can I="create" a={MODULE}>
@@ -199,167 +268,207 @@ function OrganizationsView() {
         organization={existing}
         onCancel={() => go(existing ? `${BASE}/${existing.id}` : BASE)}
         onCreate={async (input) => {
-          try {
-            const created = await create.mutateAsync(input);
-            toast.success("Organization created");
-            go(`${BASE}/${created.id}`);
-          } catch (e) {
-            throw new Error(describeApiError(e, "organization"));
-          }
+          const result = await create.mutateAsync(input);
+          toast.success(result.owner ? "Organization created with its Owner" : "Organization created");
+          go(`${BASE}/${result.organization.id}`);
         }}
-        onSaveDefaults={async (changes) => {
-          try {
-            // Only the defaults can change. Changing the timezone never moves existing events.
-            if (Object.keys(changes).length) await update.mutateAsync({ id: existing!.id, changes });
-            toast.success("Changes saved");
-            go(`${BASE}/${existing!.id}`);
-          } catch (e) {
-            throw new Error(describeApiError(e, "organization"));
-          }
+        onSave={async (changes) => {
+          if (Object.keys(changes).length) await update.mutateAsync({ id: existing!.id, changes });
+          toast.success("Organization updated");
+          go(`${BASE}/${existing!.id}`);
         }}
       />
     );
   }
 
   return (
-    <RecordWorkspace
-      fit
-      inlineToasts={false}
-      // A short list sizes to its rows; the record page, panel and forms keep a tall stage.
-      className={location.mode === "list" ? undefined : "h-[calc(100vh-270px)] min-h-[520px]"}
-      records={organizations}
-      getId={(o) => o.id}
-      noun="organization"
-      listLabel="Organizations"
-      location={location}
-      // pushState (not router.push) changes the address without rebuilding the page, so the record page loads once.
-      onLocationChange={(next) => go(recordPath(BASE, next))}
-      list={({ onRowClick, activeRowId, highlightIds, onVisibleRowsChange }) => (
-        <Table
-          columns={columns}
-          data={rows}
-          getRowId={(r) => r.id}
-          title="Organizations"
-          loading={source.isPending}
-          // Pages come from the server. The API can't search organizations yet, so the table doesn't offer a
-          // search that would only look at the page on screen.
-          page={page}
-          onPageChange={setPage}
-          rowsPerPage={pageSize}
-          onRowsPerPageChange={(size) => {
-            setPageSize(size);
-            setPage(1);
-          }}
-          totalRows={isPlatform ? (list.data?.totalItems ?? 0) : rows.length}
-          searchable={false}
-          filters={false}
-          onRowClick={onRowClick}
-          activeRowId={activeRowId}
-          highlightIds={highlightIds}
-          onVisibleRowsChange={onVisibleRowsChange}
-          emptyState={
-            <EmptyState
-              icon={<BuildingIcon />}
-              title="No organizations yet"
-              description="Create one for each company that runs events."
-              actions={newOrganization("New organization")}
-            />
-          }
-          toolbarActions={newOrganization("New organization", true)}
-          className="rounded-none border-none shadow-none"
-        />
-      )}
-      // Only the organization's defaults can change (the API has no rename or switch-off yet).
-      identity={(o, api) => ({
-        primary: canUpdate ? { label: "Edit defaults", onClick: () => api.edit(o) } : undefined,
-        avatar: <Avatar initials={initialsOf(o.name)} size={48} />,
-        name: o.name,
-        status: <StatusPill kind="account" status={o.is_active ? "active" : "inactive"} />,
-        meta: (
-          <>
-            <code>{o.slug}</code> · Created {formatDate(o.created_at)}
-          </>
-        ),
-      })}
-      stats={(o) => [
-        { label: "Country", value: o.country },
-        { label: "Timezone", value: o.timezone.replace(/_/g, " ") },
-        { label: "Currency", value: o.default_currency },
-        { label: "Branches", value: o.has_branches ? "On" : "Off" },
-      ]}
-      panel={(o) => (
-        <div>
-          <RecordHeading>Details</RecordHeading>
-          <RecordKv
-            items={[
-              { label: "Name", value: o.name },
-              { label: "Slug", value: o.slug },
-              { label: "Description", value: o.description ?? "None" },
-              { label: "Created", value: formatDate(o.created_at) },
-            ]}
+    <>
+      <RecordWorkspace
+        fit
+        inlineToasts={false}
+        // A short list sizes to its rows; the record page, panel and forms keep a tall stage.
+        className={location.mode === "list" ? undefined : "h-[calc(100vh-270px)] min-h-[520px]"}
+        records={organizations}
+        getId={(o) => o.id}
+        noun="organization"
+        listLabel="Organizations"
+        location={location}
+        // pushState (not router.push) changes the address without rebuilding the page, so the record page loads once.
+        onLocationChange={(next) => go(recordPath(BASE, next))}
+        list={({ onRowClick, activeRowId, highlightIds, onVisibleRowsChange }) => (
+          <Table
+            columns={columns}
+            data={rows}
+            getRowId={(r) => r.id}
+            title="Organizations"
+            loading={source.isPending}
+            // Pages come from the server. The API can't search organizations yet, so the table doesn't offer a
+            // search that would only look at the page on screen.
+            page={page}
+            onPageChange={setPage}
+            rowsPerPage={pageSize}
+            onRowsPerPageChange={(size) => {
+              setPageSize(size);
+              setPage(1);
+            }}
+            totalRows={isPlatform ? (list.data?.totalItems ?? 0) : rows.length}
+            searchable={false}
+            filters={false}
+            onRowClick={onRowClick}
+            activeRowId={activeRowId}
+            highlightIds={highlightIds}
+            onVisibleRowsChange={onVisibleRowsChange}
+            emptyState={
+              <EmptyState
+                icon={<BuildingIcon />}
+                title="No organizations yet"
+                description="Create one for each company that runs events."
+                actions={newOrganization("New organization")}
+              />
+            }
+            toolbarActions={newOrganization("New organization", true)}
+            className="rounded-none border-none shadow-none"
           />
-        </div>
-      )}
-      page={{
-        tabs: [
-          { id: "overview", label: "Overview" },
-          { id: "branches", label: "Branches" },
-        ],
-        content: (o, tab) =>
-          tab === "branches" ? (
-            o.has_branches ? (
-              <OrganizationBranches organizationId={o.id} />
-            ) : (
-              <EmptyState size="sm" icon={<BuildingIcon />} title="Branches are off" description="This organization runs everything as one. Adding a branch turns them on." />
-            )
-          ) : (
-            <div className="flex flex-col gap-4">
-              <div>
-                <RecordHeading>Details</RecordHeading>
-                <RecordKv
-                  items={[
-                    { label: "Name", value: o.name },
-                    { label: "Slug", value: o.slug },
-                    { label: "Description", value: o.description ?? "None" },
-                    { label: "Last changed", value: formatDate(o.updated_at) },
-                  ]}
-                />
-              </div>
-              <div>
-                <RecordHeading>Defaults for new events</RecordHeading>
-                <RecordKv
-                  items={[
-                    { label: "Country", value: o.country },
-                    { label: "Timezone", value: o.timezone.replace(/_/g, " ") },
-                    { label: "Currency", value: o.default_currency },
-                  ]}
-                />
-              </div>
-            </div>
+        )}
+        identity={(o, api) => ({
+          primary: canUpdate ? { label: "Edit organization", onClick: () => api.edit(o) } : undefined,
+          menu: !isSuperAdmin
+            ? []
+            : [
+                o.is_active
+                  ? {
+                      label: "Switch off organization",
+                      destructive: true,
+                      onClick: () => setStatusTarget({ organization: o, isActive: false }),
+                    }
+                  : {
+                      label: "Switch on organization",
+                      onClick: () => setStatusTarget({ organization: o, isActive: true }),
+                    },
+              ],
+          avatar: <Avatar initials={initialsOf(o.name)} size={48} />,
+          name: o.name,
+          status: <StatusPill kind="account" status={o.is_active ? "active" : "inactive"} />,
+          meta: (
+            <>
+              <code>{o.slug}</code> · Created {formatDate(o.created_at)}
+            </>
           ),
-        rail: (o) => (
-          <RecordRailCard title="Organization">
+        })}
+        stats={(o) => [
+          { label: "Country", value: o.country },
+          { label: "Timezone", value: o.timezone.replace(/_/g, " ") },
+          { label: "Currency", value: o.default_currency },
+          { label: "Branches", value: o.has_branches ? "On" : "Off" },
+        ]}
+        panel={(o) => (
+          <div>
+            <RecordHeading>Details</RecordHeading>
             <RecordKv
-              single
               items={[
-                { label: "Organization ID", value: o.id },
-                { label: "Status", value: <StatusPill kind="account" status={o.is_active ? "active" : "inactive"} /> },
+                { label: "Name", value: o.name },
+                { label: "Slug", value: o.slug },
+                { label: "Description", value: o.description ?? "None" },
                 { label: "Created", value: formatDate(o.created_at) },
               ]}
             />
-          </RecordRailCard>
-        ),
-      }}
-      form={{
-        // Not used: create and edit are their own full pages (see the form above). The workspace still needs a form prop.
-        sections: [],
-        toValues: () => ({}),
-        onSave: (_values, existing) => {
-          if (existing) return existing;
-          throw new Error("Use the form page.");
-        },
-      }}
-    />
+          </div>
+        )}
+        page={{
+          tabs: [
+            { id: "overview", label: "Overview" },
+            { id: "branches", label: "Branches" },
+            ...(canViewStaff ? [{ id: "staff", label: "Staff Assignments" }] : []),
+          ],
+          content: (o, tab) =>
+            tab === "branches" ? (
+              o.has_branches ? (
+                <OrganizationBranches organizationId={o.id} />
+              ) : (
+                <EmptyState size="sm" icon={<BuildingIcon />} title="Branches are off" description="This organization runs everything as one. Adding a branch turns them on." />
+              )
+            ) : tab === "staff" ? (
+              <OrganizationStaff organizationId={o.id} />
+            ) : (
+              <div className="flex flex-col gap-4">
+                <div>
+                  <RecordHeading>Details</RecordHeading>
+                  <RecordKv
+                    items={[
+                      { label: "Name", value: o.name },
+                      { label: "Slug", value: o.slug },
+                      { label: "Description", value: o.description ?? "None" },
+                      { label: "Last changed", value: formatDate(o.updated_at) },
+                    ]}
+                  />
+                </div>
+                <div>
+                  <RecordHeading>Defaults for new events</RecordHeading>
+                  <RecordKv
+                    items={[
+                      { label: "Country", value: o.country },
+                      { label: "Timezone", value: o.timezone.replace(/_/g, " ") },
+                      { label: "Currency", value: o.default_currency },
+                    ]}
+                  />
+                </div>
+              </div>
+            ),
+          rail: (o) => (
+            <RecordRailCard title="Organization">
+              <RecordKv
+                single
+                items={[
+                  { label: "Organization ID", value: o.id },
+                  { label: "Status", value: <StatusPill kind="account" status={o.is_active ? "active" : "inactive"} /> },
+                  { label: "Created", value: formatDate(o.created_at) },
+                ]}
+              />
+            </RecordRailCard>
+          ),
+        }}
+        form={{
+          sections: [],
+          toValues: () => ({}),
+          onSave: (_values, existing) => {
+            if (existing) return existing;
+            throw new Error("Use the form page.");
+          },
+        }}
+      />
+
+      <DestructiveDialog
+        open={Boolean(statusTarget && !statusTarget.isActive)}
+        onOpenChange={(open) => {
+          if (!open) setStatusTarget(null);
+        }}
+        title={statusTarget ? `Switch off ${statusTarget.organization.name}?` : ""}
+        description="Its staff won't be able to sign in or work, and its events disappear from the public site. Nothing is deleted; you can switch it back on."
+        confirmLabel="Switch off organization"
+        loading={toggleStatus.isPending}
+        loadingLabel="Switching off"
+        onConfirm={() => {
+          if (!statusTarget) return;
+          toggleStatus.mutate({ id: statusTarget.organization.id, isActive: false });
+        }}
+      />
+
+      <ConfirmDialog
+        open={Boolean(statusTarget && statusTarget.isActive)}
+        onOpenChange={(open) => {
+          if (!open) setStatusTarget(null);
+        }}
+        title={statusTarget ? `Switch on ${statusTarget.organization.name}?` : ""}
+        description="Its staff will be able to sign in and work again, and its published events can appear on the public site."
+        confirmLabel="Switch on organization"
+        loading={toggleStatus.isPending}
+        loadingLabel="Switching on"
+        onConfirm={() => {
+          if (!statusTarget) return;
+          toggleStatus.mutate({ id: statusTarget.organization.id, isActive: true });
+        }}
+      />
+    </>
   );
 }
 

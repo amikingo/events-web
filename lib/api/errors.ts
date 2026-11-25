@@ -9,8 +9,18 @@ export function describeApiError(error: unknown, noun = "item"): string {
   switch (error.code) {
     case "permission_denied":
       return "You don't have permission to do this.";
+    case "grant_exceeds_own_access":
+      return grantExceedsOwnAccessMessage(error.details);
+    case "role_locked":
+      return "The Owner role can't be changed.";
+    case "role_in_use": {
+      const count = (error.details as { active_assignments?: number } | undefined)?.active_assignments;
+      return count !== undefined
+        ? `${count} staff still have this role. Give them another role first, then switch it off.`
+        : "Staff still have this role. Give them another role first, then switch it off.";
+    }
     case "conflict":
-      return `Another ${noun} already uses that code or web address. Use a different one.`;
+      return conflictMessage(error.details, noun);
     case "invalid_event_state":
       return "This event is closed or cancelled, so it can't change any more.";
     case "event_not_publishable":
@@ -54,6 +64,9 @@ export function describeApiError(error: unknown, noun = "item"): string {
     case "validation_error":
       return "Some details aren't valid. Check the fields and try again.";
     case "role_inactive":
+      return noun === "person"
+        ? "That role is switched off. Choose an active role."
+        : "Your role is switched off at the moment. Ask an admin to turn it back on.";
     case "organization_inactive":
     case "branch_inactive":
     case "invalid_tenant_scope":
@@ -105,4 +118,30 @@ function registrationClosedMessage(details: unknown): string {
     default:
       return "Registration has closed.";
   }
+}
+
+const MODULE_LABELS: Record<string, string> = {
+  ORGANIZATIONS: "Organizations",
+  BRANCHES: "Branches",
+  ROLES: "Roles",
+  USER_ROLES: "Staff Assignments",
+  EVENTS: "Events",
+  CUSTOMERS: "Clients",
+  REGISTRATIONS: "Guests",
+};
+
+export function grantExceedsOwnAccessMessage(details: unknown, moduleNames?: Record<string, string>): string {
+  const { module_code: moduleCode, action } = (details as { module_code?: string; action?: string } | undefined) ?? {};
+  if (!moduleCode || !action) return "You can't give access you don't have yourself.";
+  const moduleLabel = moduleNames?.[moduleCode] ?? MODULE_LABELS[moduleCode] ?? moduleCode;
+  const actionLabel = action.charAt(0).toUpperCase() + action.slice(1);
+  return `You can't give access you don't have yourself (${moduleLabel} › ${actionLabel}).`;
+}
+
+function conflictMessage(details: unknown, noun: string): string {
+  const field = (details as { field?: string } | undefined)?.field;
+  if (field === "user_id") return "This person is already staff of another organization.";
+  if (noun === "role" && field === "code") return "Another role already uses this code.";
+  if (noun === "role" && field === "name") return "Another role already has this name.";
+  return `Another ${noun} already uses that code or web address. Use a different one.`;
 }
