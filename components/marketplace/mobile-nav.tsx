@@ -60,8 +60,8 @@ export function MobileNav({ links }: { links: NavLink[] }) {
                 <button
                   type="button"
                   className={`${linkCls} w-full text-left text-danger-text`}
-                  onClick={() => {
-                    signOut();
+                  onClick={async () => {
+                    await signOut();
                     close();
                     toast.info("Signed out");
                     router.push("/");

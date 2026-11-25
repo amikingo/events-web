@@ -4,56 +4,104 @@ import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import type { FormEvent } from "react";
 import { MARKETPLACE } from "@/lib/marketplace/config";
-import { phoneDigits, validateEmail, validatePhone } from "@/lib/marketplace/validation";
+import { groupPhone, phoneDigits, validatePhone } from "@/lib/marketplace/validation";
 import { ApiError } from "@/lib/api-client";
+import { guestAuthMessage } from "@/lib/api/errors";
 import { attendeeAuth } from "@/app/auth/attendee/attendee-auth-service";
-import type { Channel } from "@/app/auth/attendee/attendee-auth-service";
-import { AuthCard, DemoHint, StepLink, landing, safeNext } from "@/app/auth/shared";
+import { AuthCard, StepLink, landing, safeNext } from "@/app/auth/shared";
 import type { StepProps } from "@/app/auth/shared";
 import { authService } from "@/app/auth/staff/auth-service";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ErrorBanner } from "@/components/ui/error-banner";
 import { Field } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { toast } from "@/components/ui/toaster";
 
+type Mode = "code" | "password" | "team";
+
 /**
- * Sign in for everyone. People enter an email or phone number and get a one-time code. Team members use "Team
- * sign-in" instead: mobile number and password, checked by events-api.
+ * Sign in for everyone:
+ * - Guest SMS code (default): Ethiopian mobile → SMS code (`POST /v1/auth/customer/code`) → verify on code step.
+ * - Guest password: mobile + password (`POST /v1/auth/customer/login/password`).
+ * - Team sign-in: mobile + password (`POST /v1/auth/staff/login`).
  */
-export function SignInStep({ next, go }: StepProps) {
+export function SignInStep({ next, go, challenge, setChallenge }: StepProps) {
   const router = useRouter();
-  const [identifier, setIdentifier] = useState("");
-  const [team, setTeam] = useState(false);
-  const [mobile, setMobile] = useState("");
+  const [mode, setMode] = useState<Mode>("code");
+  // Filled in when sign-up found an existing account and sent the person here.
+  const [mobile, setMobile] = useState(() => (challenge?.mobile ? groupPhone(challenge.mobile) : ""));
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
-  const [errors, setErrors] = useState<{ identifier?: string; mobile?: string; password?: string }>({});
-  const [failure, setFailure] = useState<string | null>(null);
+  const [errors, setErrors] = useState<{ mobile?: string; password?: string }>({});
+  const [failure, setFailure] = useState<{ message: string; offerSignUp?: boolean; mobile?: string } | null>(null);
   const [loading, setLoading] = useState(false);
-  const idId = useId();
   const mobileId = useId();
   const pwId = useId();
 
-  async function submitIdentifier(e: FormEvent) {
-    e.preventDefault();
-    const value = identifier.trim();
-    const channel: Channel = value.includes("@") ? "email" : "sms";
-    const error = channel === "email" ? validateEmail(value) : validatePhone(value);
-    setErrors({ identifier: error });
-    if (error) return;
+  function switchMode(target: Mode) {
+    setMode(target);
+    setPassword("");
+    setErrors({});
+    setFailure(null);
+  }
 
+  async function submitCustomerCode(e: FormEvent) {
+    e.preventDefault();
+    const mobileError = validatePhone(mobile);
+    setErrors({ mobile: mobileError });
+    if (mobileError) return;
+
+    const e164 = `+251${phoneDigits(mobile)}`;
+    setFailure(null);
     setLoading(true);
-    await attendeeAuth.requestCode({ channel, value, purpose: "sign-in", next: safeNext(next) });
-    go("code");
+    try {
+      await attendeeAuth.requestCode(e164);
+      setChallenge({ mobile: e164, purpose: "sign-in", next: safeNext(next) });
+      go("code");
+    } catch (error) {
+      setFailure({
+        message: guestAuthMessage(error),
+        offerSignUp: error instanceof ApiError && error.code === "account_not_found",
+        mobile: e164,
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function submitCustomerPassword(e: FormEvent) {
+    e.preventDefault();
+    const nextErrors = {
+      mobile: validatePhone(mobile),
+      password: password ? undefined : "Enter your password.",
+    };
+    setErrors(nextErrors);
+    if (nextErrors.mobile || nextErrors.password) return;
+
+    const e164 = `+251${phoneDigits(mobile)}`;
+    setFailure(null);
+    setLoading(true);
+    try {
+      const profile = await attendeeAuth.loginWithPassword(e164, password);
+      setChallenge(null);
+      setPassword("");
+      toast.success(profile.firstname ? `Welcome back, ${profile.firstname}` : "Welcome back");
+      router.push(landing("attendee", next));
+    } catch (error) {
+      setFailure({ message: guestAuthMessage(error) });
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function submitTeam(e: FormEvent) {
     e.preventDefault();
-    const nextErrors = { mobile: validatePhone(mobile), password: password ? undefined : "Enter your password." };
+    const nextErrors = {
+      mobile: validatePhone(mobile),
+      password: password ? undefined : "Enter your password.",
+    };
     setErrors(nextErrors);
     if (nextErrors.mobile || nextErrors.password) return;
     setFailure(null);
@@ -63,27 +111,22 @@ export function SignInStep({ next, go }: StepProps) {
       toast.success(`Welcome back, ${user.name}`);
       router.push(landing("staff", next));
     } catch (error) {
-      setFailure(teamFailureMessage(error));
+      setFailure({ message: teamFailureMessage(error) });
     } finally {
       setLoading(false);
     }
   }
 
-  if (team) {
+  if (mode === "team") {
     return (
       <AuthCard
         title="Team sign-in"
         description="Use the mobile number and password for your team account."
-        onBack={() => {
-          setTeam(false);
-          setPassword("");
-          setFailure(null);
-          setErrors({});
-        }}
+        onBack={() => switchMode("code")}
         backLabel="Back to sign in"
       >
         <form onSubmit={submitTeam} noValidate className="flex flex-col gap-4">
-          {failure && <ErrorBanner>{failure}</ErrorBanner>}
+          {failure && <ErrorBanner>{failure.message}</ErrorBanner>}
           <Field label="Mobile number" htmlFor={mobileId} required error={errors.mobile}>
             <PhoneInput id={mobileId} autoComplete="username" value={mobile} onValueChange={setMobile} error={!!errors.mobile} autoFocus />
           </Field>
@@ -102,38 +145,85 @@ export function SignInStep({ next, go }: StepProps) {
     );
   }
 
+  if (mode === "password") {
+    return (
+      <AuthCard
+        title="Sign in"
+        onBack={() => switchMode("code")}
+        backLabel="Back to code sign-in"
+        description={`Use your Cheche mobile number and password to view your tickets on ${MARKETPLACE.name}.`}
+        footer={
+          <>
+            Prefer a one-time SMS code? <StepLink onClick={() => switchMode("code")}>Sign in with a code instead</StepLink>
+            <br />
+            New here? <StepLink onClick={() => go("sign-up")}>Create an account</StepLink>
+          </>
+        }
+      >
+        <form onSubmit={submitCustomerPassword} noValidate className="flex flex-col gap-4">
+          {failure && <ErrorBanner>{failure.message}</ErrorBanner>}
+          <Field label="Mobile number" htmlFor={mobileId} required error={errors.mobile}>
+            <PhoneInput id={mobileId} autoComplete="username" value={mobile} onValueChange={setMobile} error={!!errors.mobile} autoFocus />
+          </Field>
+          <Field label="Password" htmlFor={pwId} required error={errors.password}>
+            <PasswordInput id={pwId} autoComplete="current-password" value={password} error={!!errors.password} onValueChange={setPassword} />
+          </Field>
+          <div className="flex justify-end type-body-sm">
+            <StepLink onClick={() => go("forgot")}>Forgot password?</StepLink>
+          </div>
+          <Button type="submit" loading={loading} loadingLabel="Signing in" className="w-full">
+            Sign in
+          </Button>
+        </form>
+      </AuthCard>
+    );
+  }
+
   return (
     <AuthCard
       title="Sign in"
       onBack={() => router.push("/")}
       backLabel="Back to events"
-      description={`Use your email or phone number to open your tickets on ${MARKETPLACE.name} or your team dashboard.`}
+      description={`Use your mobile number to view your tickets on ${MARKETPLACE.name}.`}
       footer={
         <>
+          Have a password? <StepLink onClick={() => switchMode("password")}>Sign in with a password</StepLink>
+          <br />
           New here? <StepLink onClick={() => go("sign-up")}>Create an account</StepLink>
           <br />
-          On the team? <StepLink onClick={() => setTeam(true)}>Team sign-in</StepLink>
+          On the team? <StepLink onClick={() => switchMode("team")}>Team sign-in</StepLink>
         </>
       }
     >
-      <form onSubmit={submitIdentifier} noValidate className="flex flex-col gap-4">
-        <Field label="Email or phone number" htmlFor={idId} error={errors.identifier} hint="We'll send a six-digit code to confirm it's you.">
-          <Input
-            id={idId}
-            autoComplete="username"
-            inputMode="email"
-            value={identifier}
-            error={!!errors.identifier}
-            onChange={(e) => setIdentifier(e.target.value)}
-            placeholder="name@example.com or 911 204 412"
-            autoFocus
-          />
+      <form onSubmit={submitCustomerCode} noValidate className="flex flex-col gap-4">
+        {failure && (
+          <ErrorBanner>
+            {failure.message}
+            {failure.offerSignUp && (
+              <>
+                {" "}
+                <button
+                  type="button"
+                  className="font-semibold underline"
+                  onClick={() => {
+                    // Carry the number over, so sign-up opens with it filled in.
+                    if (failure.mobile) setChallenge({ mobile: failure.mobile, purpose: "sign-up", next: safeNext(next) });
+                    go("sign-up");
+                  }}
+                >
+                  Create an account
+                </button>
+              </>
+            )}
+          </ErrorBanner>
+        )}
+        <Field label="Mobile number" htmlFor={mobileId} required error={errors.mobile} hint="We'll text a six-digit code to confirm it's you.">
+          <PhoneInput id={mobileId} autoComplete="tel-national" value={mobile} onValueChange={setMobile} error={!!errors.mobile} autoFocus />
         </Field>
-        <Button type="submit" loading={loading} loadingLabel="Continuing" className="w-full">
-          Continue
+        <Button type="submit" loading={loading} loadingLabel="Sending code" className="w-full">
+          Send code
         </Button>
       </form>
-      <DemoHint />
     </AuthCard>
   );
 }

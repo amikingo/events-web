@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { MARKETPLACE } from "@/lib/marketplace/config";
@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useSession } from "@/app/auth/session";
 import { ShaderBackdrop } from "@/app/auth/shader-backdrop";
 import { landing } from "@/app/auth/shared";
+import type { AuthChallenge } from "@/app/auth/shared";
 import { stepFromParam, stepUrl } from "@/app/auth/steps";
 import type { Step } from "@/app/auth/steps";
 import { CodeStep } from "@/app/auth/steps/code-step";
@@ -30,6 +31,7 @@ export function AuthFlow({ hero, ticker }: { hero: ReactNode; ticker: ReactNode 
   const session = useSession();
   const step = stepFromParam(params.get("step"));
   const next = params.get("next") ?? undefined;
+  const [challenge, setChallenge] = useState<AuthChallenge | null>(null);
   const arrived = useRef(false);
 
   // Someone who arrives already signed in goes straight on. Sign-ins made on this page navigate themselves.
@@ -41,6 +43,8 @@ export function AuthFlow({ hero, ticker }: { hero: ReactNode; ticker: ReactNode 
 
   const go = useCallback(
     (to: Step) => {
+      // Drop sensitive in-memory password when leaving sign-up / code screens.
+      if (to !== "code") setChallenge((prev) => (prev ? { ...prev, password: undefined } : null));
       // Native pushState: Next.js picks it up, so `useSearchParams` re-renders with no round trip to the server.
       window.history.pushState(null, "", stepUrl(to, next));
       window.scrollTo({ top: 0 });
@@ -48,7 +52,7 @@ export function AuthFlow({ hero, ticker }: { hero: ReactNode; ticker: ReactNode 
     [next],
   );
 
-  const props = { next, go };
+  const props = { next, go, challenge, setChallenge };
 
   return (
     <main className="relative isolate flex min-h-screen flex-col overflow-hidden bg-paper-ink text-white">

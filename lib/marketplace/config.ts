@@ -30,13 +30,3 @@ export const EXPLORE_PAGE_SIZE = 9;
 
 /** A ticket type counts as "few left" at or below this many seats, or at 10% of capacity. */
 export const LOW_STOCK_THRESHOLD = 10;
-
-/**
- * Demo credentials for the simulated sign-in and phone verification. Shown on the sign-in screens so the flows can be
- * tested; there is no real SMS.
- */
-export const DEMO = {
-  code: "123456",
-  phone: "911204412",
-  accountId: "att-demo",
-} as const;

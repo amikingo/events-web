@@ -1,6 +1,22 @@
 import { ApiError } from "@/lib/api-client";
 
 /**
+ * Guest sign-in and sign-up (Phase 6). Here the API passes auth-cheche's own text on (a refused resend or sign-up,
+ * a wrong code), and its rate-limit text says how long to wait (a minute per IP, 10 minutes per mobile). So for those
+ * codes the server's message is shown; anything else, or an empty message, falls back to `describeApiError`.
+ */
+const GUEST_SERVER_TEXT_CODES = new Set(["invalid_code", "rate_limited", "central_auth_rate_limited"]);
+
+export function guestAuthMessage(error: unknown): string {
+  if (error instanceof ApiError && error.message.trim()) {
+    const issues = (error.details as { issues?: unknown[] } | undefined)?.issues;
+    const fromAuthCheche = error.code === "validation_error" && !(Array.isArray(issues) && issues.length > 0);
+    if (GUEST_SERVER_TEXT_CODES.has(error.code) || fromAuthCheche) return error.message;
+  }
+  return describeApiError(error);
+}
+
+/**
  * What to tell the person when a call fails. Decided by `error.code` only, never by the server's wording.
  * `noun` is the thing being worked on ("branch"), used in the messages that name it.
  */
@@ -21,6 +37,14 @@ export function describeApiError(error: unknown, noun = "item"): string {
     }
     case "conflict":
       return conflictMessage(error.details, noun);
+    case "invalid_code":
+      return "That code is wrong or has expired.";
+    case "account_exists":
+      return "You already have a Cheche account. Sign in instead.";
+    case "account_not_found":
+      return "No Cheche account uses this mobile number.";
+    case "invalid_credentials":
+      return "Invalid mobile number or password.";
     case "invalid_event_state":
       return "This event is closed or cancelled, so it can't change any more.";
     case "event_not_publishable":

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signOut, useSession } from "@/app/auth/session";
+import { groupPhone } from "@/lib/marketplace/validation";
 import { Avatar } from "../ui/avatar";
 import { Button } from "../ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "../ui/dropdown-menu";
@@ -41,7 +42,11 @@ export function AccountMenu({ onDark = false }: { onDark?: boolean }) {
       <DropdownMenuContent align="end" className="w-56">
         <div className="px-2.5 pb-2 pt-1.5">
           <p className="m-0 truncate type-body-sm font-semibold text-text">{session.name}</p>
-          <p className="m-0 truncate type-body-sm text-text-faint">{session.kind === "attendee" ? session.email || `+251 ${session.account.phone}` : session.email}</p>
+          <p className="m-0 truncate type-body-sm text-text-faint">
+            {session.kind === "attendee"
+              ? (session.phone ? `+251 ${groupPhone(session.phone)}` : "")
+              : session.email}
+          </p>
         </div>
         <DropdownMenuSeparator />
         {session.kind === "staff" ? (
@@ -61,8 +66,8 @@ export function AccountMenu({ onDark = false }: { onDark?: boolean }) {
         <DropdownMenuSeparator />
         <DropdownMenuItem
           destructive
-          onClick={() => {
-            signOut();
+          onClick={async () => {
+            await signOut();
             toast.info("Signed out");
             router.push("/");
           }}

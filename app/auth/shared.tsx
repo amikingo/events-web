@@ -1,17 +1,25 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { DEMO } from "@/lib/marketplace/config";
-import { groupPhone } from "@/lib/marketplace/validation";
-import { ArrowLeftIcon, InfoIcon } from "@/components/ui/icons";
-import { Note } from "@/components/ui/note";
+import { ArrowLeftIcon } from "@/components/ui/icons";
 import { TextLink } from "@/components/ui/text-link";
 import type { Step } from "@/app/auth/steps";
+
+export interface AuthChallenge {
+  /** Ethiopian E.164 mobile (`+2519...`). */
+  mobile: string;
+  purpose: "sign-in" | "sign-up";
+  /** Held only in component state between sign-up and confirming the code. */
+  password?: string;
+  next?: string;
+}
 
 export interface StepProps {
   /** Where to go after signing in, from `?next=`. */
   next?: string;
   go: (step: Step) => void;
+  challenge: AuthChallenge | null;
+  setChallenge: (next: AuthChallenge | null) => void;
 }
 
 /** Only same-site paths are allowed as a return target. */
@@ -61,13 +69,5 @@ export function StepLink({ onClick, children, soft = false }: { onClick: () => v
     <button type="button" onClick={onClick} className={soft ? "font-medium text-text-soft hover:underline" : "font-semibold text-accent-text hover:underline"}>
       {children}
     </button>
-  );
-}
-
-export function DemoHint() {
-  return (
-    <Note icon={<InfoIcon />}>
-      Demo sign-in. Use <b className="text-text">+251 {groupPhone(DEMO.phone)}</b> to see a booking history, or any number for a new account. The code is always <b className="tabular-nums text-text">{DEMO.code}</b>.
-    </Note>
   );
 }

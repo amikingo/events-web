@@ -1,31 +1,15 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { MyTicketsView } from "@/components/marketplace/my-tickets-view";
 import { Container } from "@/components/marketplace/section";
-import { Button } from "@/components/ui/button";
-import { EmptyState } from "@/components/ui/empty-state";
-import { DocIcon } from "@/components/ui/icons";
 
-export const metadata: Metadata = { title: "Find your ticket", robots: { index: false } };
+export const metadata: Metadata = { title: "My tickets", robots: { index: false } };
 
-/**
- * There are no attendee accounts yet: a registration is its code. This page says where the code is, instead of
- * pretending to list tickets it can't look up.
- */
+/** Guest registrations across organizers (`GET /v1/customer/registrations`), or the signed-out code guide. */
 export default function MyTicketsPage() {
   return (
-    <Container className="py-10 sm:py-14">
-      <EmptyState
-        size="lg"
-        tone="accent"
-        icon={<DocIcon />}
-        title="Your ticket is your code"
-        description="When you register, we show an 8-character code on screen and text it to your phone. Show it at the door. Lost it? Look for the SMS from the organizer, or ask them at the event."
-        actions={
-          <Button asChild>
-            <Link href="/events">Browse events</Link>
-          </Button>
-        }
-      />
+    <Container className="py-8 sm:py-12">
+      <h1 className="m-0 mb-6 type-h1 text-text">My tickets</h1>
+      <MyTicketsView />
     </Container>
   );
 }

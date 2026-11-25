@@ -40,8 +40,8 @@ export interface PublicEventDetail extends PublicEventCard {
 export interface PublicRegistrationInput {
   first_name: string;
   last_name: string;
-  /** An Ethiopian mobile (`09…` or `+251…`): the confirmation SMS goes there. */
-  phone: string;
+  /** An Ethiopian mobile (`09…` or `+251…`) for anonymous visitors; omitted when signed in as a guest. */
+  phone?: string;
   email?: string | null;
   affiliation_name?: string | null;
   country?: string | null;

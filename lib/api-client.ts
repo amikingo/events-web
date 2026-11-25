@@ -21,14 +21,33 @@ export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:501
 const SERVER_API_URL = (process.env.API_INTERNAL_URL ?? API_URL).replace(/\/$/, "");
 const requestBase = () => (typeof window === "undefined" ? SERVER_API_URL : API_URL);
 
-/** No token, ever: the visitor site's catalog and event pages. */
+/** No token, ever: the visitor site's catalog and event pages (except guest-linked registration POST). */
 const PUBLIC_PATH_PREFIXES = ["/v1/public/"];
-/** No Bearer token: these work from the refresh cookie (or the password) instead. */
-const AUTH_LIFECYCLE_PATHS = ["/v1/auth/staff/login", "/v1/auth/staff/refresh", "/v1/auth/staff/logout"];
+const PUBLIC_REGISTRATION_PATH = /^\/v1\/public\/organizations\/[^/]+\/events\/[^/]+\/registrations$/;
+/** No Bearer token: these work from the refresh cookie (or password/code) instead. */
+const AUTH_LIFECYCLE_PATHS = [
+  "/v1/auth/staff/login",
+  "/v1/auth/staff/refresh",
+  "/v1/auth/staff/logout",
+  "/v1/auth/customer/signup",
+  "/v1/auth/customer/signup/confirm",
+  "/v1/auth/customer/signup/resend",
+  "/v1/auth/customer/code",
+  "/v1/auth/customer/login/code",
+  "/v1/auth/customer/login/password",
+  "/v1/auth/customer/refresh",
+  "/v1/auth/customer/logout",
+];
 
-function isAnonymous(path: string): boolean {
+type AuthKind = "none" | "staff" | "guest" | "optional-guest";
+
+function authKindFor(path: string, method = "GET"): AuthKind {
   const bare = path.split("?")[0]!;
-  return PUBLIC_PATH_PREFIXES.some((p) => bare.startsWith(p)) || AUTH_LIFECYCLE_PATHS.includes(bare);
+  if (AUTH_LIFECYCLE_PATHS.includes(bare)) return "none";
+  if (bare === "/v1/auth/customer/me" || bare === "/v1/customer" || bare.startsWith("/v1/customer/")) return "guest";
+  if (method.toUpperCase() === "POST" && PUBLIC_REGISTRATION_PATH.test(bare)) return "optional-guest";
+  if (PUBLIC_PATH_PREFIXES.some((p) => bare.startsWith(p))) return "none";
+  return "staff";
 }
 
 /** Files the API serves (event covers) come back as a path; they are public, so `<img>` loads them directly. */
@@ -51,15 +70,39 @@ export class ApiError extends Error {
 
 // ── Token and session listeners ────────────────────────────────────────────────────────────────────────────
 
+export interface CustomerProfile {
+  id: string;
+  mobile: string | null;
+  firstname: string | null;
+  middlename: string | null;
+  lastname: string | null;
+}
+
+export interface CustomerToken {
+  accessToken: string;
+  expiresIn: number;
+  user: CustomerProfile;
+}
+
 let accessToken: string | null = null;
 /** The last session the API announced (token included), in memory only. Lets the app reuse a fresh sign-in. */
 let lastSession: StaffToken | null = null;
 const refreshedListeners = new Set<(session: StaffToken) => void>();
 const terminatedListeners = new Set<(reason: string) => void>();
 
+let guestAccessToken: string | null = null;
+let lastGuestSession: CustomerToken | null = null;
+const guestRefreshedListeners = new Set<(session: CustomerToken) => void>();
+const guestTerminatedListeners = new Set<(reason: string) => void>();
+
 /** The session from the latest login, refresh or role switch, or null when signed out or after a reload. */
 export function currentSession(): StaffToken | null {
   return lastSession;
+}
+
+/** The guest session from the latest login or refresh, or null when signed out or after a reload. */
+export function currentGuestSession(): CustomerToken | null {
+  return lastGuestSession;
 }
 
 /** Every login, refresh and role switch. The auth context keeps its session and refresh timer in sync with it. */
@@ -78,6 +121,20 @@ export function onSessionTerminated(listener: (reason: string) => void): () => v
   };
 }
 
+export function onGuestTokenRefreshed(listener: (session: CustomerToken) => void): () => void {
+  guestRefreshedListeners.add(listener);
+  return () => {
+    guestRefreshedListeners.delete(listener);
+  };
+}
+
+export function onGuestSessionTerminated(listener: (reason: string) => void): () => void {
+  guestTerminatedListeners.add(listener);
+  return () => {
+    guestTerminatedListeners.delete(listener);
+  };
+}
+
 /** Called by the auth API file whenever it receives a new token. */
 export function announceSession(session: StaffToken): void {
   accessToken = session.accessToken;
@@ -90,6 +147,20 @@ export function terminateSession(reason: string): void {
   accessToken = null;
   lastSession = null;
   terminatedListeners.forEach((l) => l(reason));
+}
+
+/** Called by the customer auth API file whenever it receives a new guest token. */
+export function announceGuestSession(session: CustomerToken): void {
+  guestAccessToken = session.accessToken;
+  lastGuestSession = session;
+  guestRefreshedListeners.forEach((l) => l(session));
+}
+
+/** Forgets the guest token and tells every listener. `reason` is the API error code, or `"signed_out"`. */
+export function terminateGuestSession(reason: string): void {
+  guestAccessToken = null;
+  lastGuestSession = null;
+  guestTerminatedListeners.forEach((l) => l(reason));
 }
 
 // ── Requests ───────────────────────────────────────────────────────────────────────────────────────────────
@@ -119,7 +190,11 @@ async function send<T>(path: string, { method = "GET", body, headers: extra, sig
   const headers: Record<string, string> = { Accept: "application/json", ...extra };
   const isForm = typeof FormData !== "undefined" && body instanceof FormData;
   if (body !== undefined && !isForm) headers["Content-Type"] = "application/json";
-  if (accessToken && !isAnonymous(path)) headers.Authorization = `Bearer ${accessToken}`;
+  const authKind = authKindFor(path, method);
+  if (authKind === "staff" && accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  if ((authKind === "guest" || authKind === "optional-guest") && guestAccessToken) {
+    headers.Authorization = `Bearer ${guestAccessToken}`;
+  }
 
   let res: Response;
   try {
@@ -167,6 +242,24 @@ export function refreshAccessToken(assignmentId?: string): Promise<StaffToken> {
   return refreshing;
 }
 
+type GuestRefresher = () => Promise<CustomerToken>;
+let guestRefresher: GuestRefresher | null = null;
+let guestRefreshing: Promise<CustomerToken> | null = null;
+
+/** Registered by `lib/api/customer.ts`, which owns the guest refresh endpoint. */
+export function registerGuestRefresher(fn: GuestRefresher): void {
+  guestRefresher = fn;
+}
+
+/** One guest refresh at a time: concurrent calls share the same promise. */
+export function refreshGuestAccessToken(): Promise<CustomerToken> {
+  if (!guestRefresher) return Promise.reject(new ApiError(401, "refresh_token_missing", "Guest sign-in is not set up."));
+  guestRefreshing ??= guestRefresher().finally(() => {
+    guestRefreshing = null;
+  });
+  return guestRefreshing;
+}
+
 /**
  * Terminal refresh failures: nothing here can fix them, so the person goes to sign-in. Sign-in picks a role and
  * returns the full list, which is how someone with several roles gets the picker back (`staff_context_required`
@@ -190,8 +283,45 @@ async function refreshOrTerminate(): Promise<void> {
   }
 }
 
+async function refreshGuestOrTerminate(): Promise<void> {
+  try {
+    await refreshGuestAccessToken();
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) terminateGuestSession(error.code);
+    throw error;
+  }
+}
+
 async function call<T>(path: string, options: RequestOptions): Promise<Envelope<T>> {
-  if (isAnonymous(path)) return send<T>(path, options);
+  const authKind = authKindFor(path, options.method ?? "GET");
+  if (authKind === "none") return send<T>(path, options);
+
+  if (authKind === "optional-guest") {
+    const sentWithGuestToken = Boolean(guestAccessToken);
+    try {
+      return await send<T>(path, options);
+    } catch (error) {
+      if (sentWithGuestToken && error instanceof ApiError && error.status === 401 && TOKEN_UNUSABLE.has(error.code)) {
+        await refreshGuestOrTerminate();
+        return send<T>(path, options);
+      }
+      throw error;
+    }
+  }
+
+  if (authKind === "guest") {
+    if (!guestAccessToken) await refreshGuestOrTerminate();
+    try {
+      return await send<T>(path, options);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401 && TOKEN_UNUSABLE.has(error.code)) {
+        await refreshGuestOrTerminate();
+        return send<T>(path, options);
+      }
+      throw error;
+    }
+  }
+
   if (!accessToken) await refreshOrTerminate();
   try {
     return await send<T>(path, options);
@@ -217,7 +347,9 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 
 async function fetchBlob(path: string, signal?: AbortSignal): Promise<Blob> {
   const headers: Record<string, string> = {};
-  if (accessToken && !isAnonymous(path)) headers.Authorization = `Bearer ${accessToken}`;
+  const authKind = authKindFor(path, "GET");
+  if (authKind === "staff" && accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  if (authKind === "guest" && guestAccessToken) headers.Authorization = `Bearer ${guestAccessToken}`;
 
   let res: Response;
   try {
@@ -250,8 +382,21 @@ export async function apiDownload(
   for (const [k, v] of Object.entries(query)) if (v !== undefined) params.set(k, v);
   const qs = params.toString();
   const fullPath = qs ? `${path}?${qs}` : path;
+  const authKind = authKindFor(fullPath, "GET");
 
-  if (isAnonymous(fullPath)) return fetchBlob(fullPath, signal);
+  if (authKind === "none") return fetchBlob(fullPath, signal);
+  if (authKind === "guest") {
+    if (!guestAccessToken) await refreshGuestOrTerminate();
+    try {
+      return await fetchBlob(fullPath, signal);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401 && TOKEN_UNUSABLE.has(error.code)) {
+        await refreshGuestOrTerminate();
+        return fetchBlob(fullPath, signal);
+      }
+      throw error;
+    }
+  }
   if (!accessToken) await refreshOrTerminate();
   try {
     return await fetchBlob(fullPath, signal);
