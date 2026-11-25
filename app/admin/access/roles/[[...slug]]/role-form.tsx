@@ -16,11 +16,12 @@ import { ApiError } from "@/lib/api-client";
 import { describeApiError, grantExceedsOwnAccessMessage } from "@/lib/api/errors";
 import type { Role, RoleCreateInput, RoleGrantInput, RoleUpdateInput } from "@/lib/api/roles";
 
-type GrantAction = "view" | "create" | "update";
+type GrantAction = "view" | "create" | "update" | "export";
 type ModuleRowConfig = {
   code: string;
   defaultName: string;
   actions: readonly GrantAction[];
+  hint?: string;
 };
 
 const ROLE_MODULES: readonly ModuleRowConfig[] = [
@@ -30,10 +31,15 @@ const ROLE_MODULES: readonly ModuleRowConfig[] = [
   { code: "USER_ROLES", defaultName: "Staff assignments", actions: ["view", "create", "update"] },
   { code: "EVENTS", defaultName: "Events", actions: ["view", "create", "update"] },
   { code: "CUSTOMERS", defaultName: "Clients", actions: ["view", "create", "update"] },
-  { code: "REGISTRATIONS", defaultName: "Guests", actions: ["view", "create", "update"] },
+  {
+    code: "REGISTRATIONS",
+    defaultName: "Guests",
+    actions: ["view", "create", "update", "export"],
+    hint: "Export lets them download the guest list with every guest's mobile.",
+  },
 ];
 
-type GrantState = Record<string, { view: boolean; create: boolean; update: boolean }>;
+type GrantState = Record<string, { view: boolean; create: boolean; update: boolean; export: boolean }>;
 
 interface Values {
   code: string;
@@ -58,8 +64,9 @@ function initialGrants(role?: Role): GrantState {
     const existing = byCode.get(mod.code);
     const hasCreate = mod.actions.includes("create") && Boolean(existing?.create);
     const hasUpdate = mod.actions.includes("update") && Boolean(existing?.update);
-    const hasView = Boolean(existing?.view) || hasCreate || hasUpdate;
-    state[mod.code] = { view: hasView, create: hasCreate, update: hasUpdate };
+    const hasExport = mod.actions.includes("export") && Boolean(existing?.export);
+    const hasView = Boolean(existing?.view) || hasCreate || hasUpdate || hasExport;
+    state[mod.code] = { view: hasView, create: hasCreate, update: hasUpdate, export: hasExport };
   }
   return state;
 }
@@ -77,7 +84,7 @@ function grantsEqual(a: GrantState, b: GrantState, visibleCodes: string[]): bool
   return visibleCodes.every((code) => {
     const left = a[code];
     const right = b[code];
-    return left?.view === right?.view && left?.create === right?.create && left?.update === right?.update;
+    return left?.view === right?.view && left?.create === right?.create && left?.update === right?.update && left?.export === right?.export;
   });
 }
 
@@ -105,12 +112,20 @@ function validate(v: Values, editing: boolean): FieldErrors {
 function toGrantPayload(grants: GrantState): RoleGrantInput[] {
   const result: RoleGrantInput[] = [];
   for (const mod of ROLE_MODULES) {
-    const g = grants[mod.code] ?? { view: false, create: false, update: false };
+    const g = grants[mod.code] ?? { view: false, create: false, update: false, export: false };
     const view = Boolean(g.view);
     const create = mod.actions.includes("create") ? Boolean(g.create) : false;
     const update = mod.actions.includes("update") ? Boolean(g.update) : false;
-    if (view || create || update) {
-      result.push({ module_code: mod.code, view, create, update });
+    const supportsExport = mod.actions.includes("export");
+    const canExport = supportsExport ? Boolean(g.export) : false;
+    if (view || create || update || canExport) {
+      result.push({
+        module_code: mod.code,
+        view,
+        create,
+        update,
+        ...(supportsExport ? { export: canExport } : {}),
+      });
     }
   }
   return result;
@@ -154,14 +169,16 @@ export function RoleForm({ role, ownerRole, hasBranches, onCreate, onUpdate, onC
 
   function toggleGrant(moduleCode: string, action: GrantAction, checked: boolean) {
     setValues((prev) => {
-      const current = prev.grants[moduleCode] ?? { view: false, create: false, update: false };
+      const current = prev.grants[moduleCode] ?? { view: false, create: false, update: false, export: false };
       let next = { ...current };
       if (action === "view") {
-        next = checked ? { ...current, view: true } : { view: false, create: false, update: false };
+        next = checked ? { ...current, view: true } : { view: false, create: false, update: false, export: false };
       } else if (action === "create") {
         next = checked ? { ...current, view: true, create: true } : { ...current, create: false };
       } else if (action === "update") {
         next = checked ? { ...current, view: true, update: true } : { ...current, update: false };
+      } else if (action === "export") {
+        next = checked ? { ...current, view: true, export: true } : { ...current, export: false };
       }
       return { ...prev, grants: { ...prev.grants, [moduleCode]: next } };
     });
@@ -352,30 +369,33 @@ export function RoleForm({ role, ownerRole, hasBranches, onCreate, onUpdate, onC
         <Card>
           <CardHeader
             title="Access"
-            subtitle="Ticking Create or Update also ticks View. Unticking View clears the row."
+            subtitle="Ticking Create, Update or Export also ticks View. Unticking View clears the row."
           />
           <div className="overflow-hidden rounded-sm border border-border">
-            <div className="hidden grid-cols-[1fr_96px_96px_96px] items-center border-b border-border bg-surface-2 px-4 py-2.5 sm:grid">
+            <div className="hidden grid-cols-[1fr_76px_76px_76px_76px] items-center border-b border-border bg-surface-2 px-4 py-2.5 sm:grid">
               <span className="type-label text-text-soft">Module</span>
               <span className="type-label text-center text-text-soft">View</span>
               <span className="type-label text-center text-text-soft">Create</span>
               <span className="type-label text-center text-text-soft">Update</span>
+              <span className="type-label text-center text-text-soft">Export</span>
             </div>
             <div className="divide-y divide-border">
               {visibleModules.map((mod) => {
                 const label = moduleNames[mod.code] ?? mod.defaultName;
-                const row = values.grants[mod.code] ?? { view: false, create: false, update: false };
+                const row = values.grants[mod.code] ?? { view: false, create: false, update: false, export: false };
                 const rowError = errors.grants[mod.code];
                 const canCreate = mod.actions.includes("create");
                 const canUpdate = mod.actions.includes("update");
+                const canExport = mod.actions.includes("export");
 
                 return (
                   <div
                     key={mod.code}
-                    className="flex flex-col gap-3 px-4 py-3 sm:grid sm:grid-cols-[1fr_96px_96px_96px] sm:items-center sm:gap-0"
+                    className="flex flex-col gap-3 px-4 py-3 sm:grid sm:grid-cols-[1fr_76px_76px_76px_76px] sm:items-center sm:gap-0"
                   >
-                    <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-1 pr-2">
                       <span className="type-body font-medium text-text">{label}</span>
+                      {mod.hint && <span className="text-[11.5px] text-text-faint">{mod.hint}</span>}
                       {rowError && (
                         <p role="alert" className="m-0 flex items-center gap-1.5 text-[11.5px] text-danger-text">
                           <AlertCircleIcon className="size-3 flex-none" />
@@ -440,6 +460,29 @@ export function RoleForm({ role, ownerRole, hasBranches, onCreate, onUpdate, onC
                                 checked={row.update}
                                 aria-label={`${label} Update`}
                                 onCheckedChange={(checked) => toggleGrant(mod.code, "update", checked)}
+                              />
+                            </div>
+                          </>
+                        ) : (
+                          <span className="hidden type-body-sm text-text-faint sm:inline">—</span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center sm:justify-center">
+                        {canExport ? (
+                          <>
+                            <div className="sm:hidden">
+                              <Checkbox
+                                checked={row.export}
+                                label="Export"
+                                onCheckedChange={(checked) => toggleGrant(mod.code, "export", checked)}
+                              />
+                            </div>
+                            <div className="hidden sm:flex">
+                              <Checkbox
+                                checked={row.export}
+                                aria-label={`${label} Export`}
+                                onCheckedChange={(checked) => toggleGrant(mod.code, "export", checked)}
                               />
                             </div>
                           </>

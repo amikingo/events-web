@@ -39,6 +39,8 @@ export function describeApiError(error: unknown, noun = "item"): string {
       return "This event has several ticket types. Choose one.";
     case "ticket_type_inactive":
       return "That ticket type is switched off. Choose another one.";
+    case "registration_cancelled":
+      return "This guest's registration is cancelled. Bring them back first.";
     case "person_inactive":
       return "This guest's profile is switched off, so they can't be registered.";
     case "privacy_notice_outdated":

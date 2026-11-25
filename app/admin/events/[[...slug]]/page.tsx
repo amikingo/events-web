@@ -360,7 +360,12 @@ function EventsView({ organizationId }: { organizationId: string }) {
         ],
         content: (e, tab) =>
           tab === "guests" ? (
-            <RegistrationsTab event={e} canCreate={can("create", MODULE_CODES.REGISTRATIONS)} canUpdate={can("update", MODULE_CODES.REGISTRATIONS)} />
+            <RegistrationsTab
+              event={e}
+              canCreate={can("create", MODULE_CODES.REGISTRATIONS)}
+              canUpdate={can("update", MODULE_CODES.REGISTRATIONS)}
+              canExport={can("export", MODULE_CODES.REGISTRATIONS)}
+            />
           ) : tab === "tickets" ? (
             <TicketTypesTab event={e} canUpdate={canUpdate} />
           ) : tab === "cover" ? (

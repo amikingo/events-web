@@ -215,6 +215,55 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   return (await call<T>(path, options)).data;
 }
 
+async function fetchBlob(path: string, signal?: AbortSignal): Promise<Blob> {
+  const headers: Record<string, string> = {};
+  if (accessToken && !isAnonymous(path)) headers.Authorization = `Bearer ${accessToken}`;
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      method: "GET",
+      headers,
+      credentials: "include",
+      cache: "no-store",
+      signal,
+    });
+  } catch (cause) {
+    if (cause instanceof DOMException && cause.name === "AbortError") throw cause;
+    throw new ApiError(0, "network_error", "Could not reach the server.", cause);
+  }
+
+  if (res.ok) return res.blob();
+  const payload = (await res.json().catch(() => null)) as
+    | { success: false; error: { code: string; message: string; details?: unknown } }
+    | null;
+  const error = payload && !payload.success ? payload.error : null;
+  throw new ApiError(res.status, error?.code ?? "unknown_error", error?.message ?? res.statusText, error?.details);
+}
+
+/** Downloads a non-JSON file (such as a CSV export) using the same Bearer token and 401 refresh-retry flow. */
+export async function apiDownload(
+  path: string,
+  { query = {}, signal }: { query?: Record<string, string | undefined>; signal?: AbortSignal } = {},
+): Promise<Blob> {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(query)) if (v !== undefined) params.set(k, v);
+  const qs = params.toString();
+  const fullPath = qs ? `${path}?${qs}` : path;
+
+  if (isAnonymous(fullPath)) return fetchBlob(fullPath, signal);
+  if (!accessToken) await refreshOrTerminate();
+  try {
+    return await fetchBlob(fullPath, signal);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401 && TOKEN_UNUSABLE.has(error.code)) {
+      await refreshOrTerminate();
+      return fetchBlob(fullPath, signal);
+    }
+    throw error;
+  }
+}
+
 // ── Pagination ─────────────────────────────────────────────────────────────────────────────────────────────
 
 /** The one paginated shape every list screen gets. */

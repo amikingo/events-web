@@ -8,22 +8,32 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorBanner } from "@/components/ui/error-banner";
 import { Field } from "@/components/ui/field";
-import { UserIcon } from "@/components/ui/icons";
+import { DownloadIcon, UserIcon } from "@/components/ui/icons";
 import { Input } from "@/components/ui/input";
+import { Modal, ModalBody, ModalFooter, ModalHeader } from "@/components/ui/modal";
 import { isValidEthiopianPhone, PhoneInput } from "@/components/ui/phone-input";
 import { RecordHeading, RecordRows } from "@/components/ui/record-view";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Select } from "@/components/ui/select";
+import { SelectCard } from "@/components/ui/select-card";
 import { Skeleton, SkeletonStack } from "@/components/ui/skeleton";
 import { StatusPill } from "@/components/ui/status-pill";
 import { TextLink } from "@/components/ui/text-link";
 import { toast } from "@/components/ui/toaster";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { ApiError } from "@/lib/api-client";
 import type { StaffEvent } from "@/lib/api/events";
 import { describeApiError } from "@/lib/api/errors";
 import { listPersons } from "@/lib/api/persons";
 import type { Person, RegistrationStatus } from "@/lib/api/persons";
-import { getRegistrationSummary, listRegistrations, registerGuest, setRegistrationStatus } from "@/lib/api/registrations";
+import {
+  changeRegistrationTicketType,
+  downloadGuestList,
+  getRegistrationSummary,
+  listRegistrations,
+  registerGuest,
+  setRegistrationStatus,
+} from "@/lib/api/registrations";
 import type { Registration } from "@/lib/api/registrations";
 import { formatNumber } from "@/lib/format";
 import { personQk, registrationQk } from "@/lib/query-keys";
@@ -212,8 +222,18 @@ function RegisterForm({ event, ticketTypes, onDone }: RegisterFormProps) {
   );
 }
 
-/** An event's guest list: places left, who is registered, register a guest, cancel or bring one back. */
-export function RegistrationsTab({ event, canCreate, canUpdate }: { event: StaffEvent; canCreate: boolean; canUpdate: boolean }) {
+/** An event's guest list: places left, who is registered, register a guest, change ticket type, cancel, or export CSV. */
+export function RegistrationsTab({
+  event,
+  canCreate,
+  canUpdate,
+  canExport,
+}: {
+  event: StaffEvent;
+  canCreate: boolean;
+  canUpdate: boolean;
+  canExport: boolean;
+}) {
   const queryClient = useQueryClient();
   const orgId = event.organization_id;
   const [page, setPage] = useState(1);
@@ -221,6 +241,10 @@ export function RegistrationsTab({ event, canCreate, canUpdate }: { event: Staff
   const [search, setSearch] = useState("");
   const [registering, setRegistering] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState<Registration | null>(null);
+  const [ticketTarget, setTicketTarget] = useState<Registration | null>(null);
+  const [selectedTicketId, setSelectedTicketId] = useState("");
+  const [downloading, setDownloading] = useState(false);
+
   const q = useDebouncedValue(search.trim(), 300);
   const params = { page, pageSize: PAGE_SIZE, status: status === "ALL" ? undefined : status, q: q || undefined };
 
@@ -232,6 +256,8 @@ export function RegistrationsTab({ event, canCreate, canUpdate }: { event: Staff
   });
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: registrationQk.all(orgId, event.id) });
+  const refreshSummary = () => void queryClient.invalidateQueries({ queryKey: registrationQk.summary(orgId, event.id) });
+
   const change = useMutation({
     mutationFn: ({ registration, to }: { registration: Registration; to: RegistrationStatus }) => setRegistrationStatus(orgId, event.id, registration.id, to),
     onSuccess: (registration) => {
@@ -244,11 +270,83 @@ export function RegistrationsTab({ event, canCreate, canUpdate }: { event: Staff
     onError: (error) => toast.error("Couldn't change the registration", { body: describeApiError(error, "registration") }),
   });
 
+  const changeTicket = useMutation({
+    mutationFn: ({ registrationId, ticketTypeId }: { registrationId: string; ticketTypeId: string; ticketTypeName: string }) =>
+      changeRegistrationTicketType(orgId, event.id, registrationId, ticketTypeId),
+    onSuccess: () => {
+      setTicketTarget(null);
+      setSelectedTicketId("");
+      toast.success("Ticket type changed");
+      refresh();
+    },
+    onError: (error, variables) => {
+      refreshSummary();
+      if (error instanceof ApiError) {
+        if (error.code === "capacity_reached" && (error.details as { scope?: string } | undefined)?.scope === "TICKET_TYPE") {
+          setSelectedTicketId("");
+          toast.error(`${variables.ticketTypeName} is full. Choose another one.`);
+          return;
+        }
+        if (error.code === "ticket_type_inactive") {
+          setSelectedTicketId("");
+          toast.error("This ticket type is switched off. Choose another one.");
+          return;
+        }
+        if (error.code === "registration_cancelled") {
+          setTicketTarget(null);
+          setSelectedTicketId("");
+          refresh();
+          toast.error("This guest's registration is cancelled. Bring them back first.");
+          return;
+        }
+        if (error.code === "invalid_event_state") {
+          setTicketTarget(null);
+          setSelectedTicketId("");
+          toast.error("Ticket types can only be changed while the event is published.");
+          return;
+        }
+        if (error.code === "permission_denied") {
+          setTicketTarget(null);
+          setSelectedTicketId("");
+          toast.error("You don't have permission to do this.");
+          return;
+        }
+      }
+      toast.error(describeApiError(error, "registration"));
+    },
+  });
+
+  async function handleDownloadCsv() {
+    setDownloading(true);
+    try {
+      const blob = await downloadGuestList(orgId, event.id, {
+        status: status === "ALL" ? undefined : status,
+        q: q || undefined,
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${event.slug}-guests.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      toast.success("Guest list downloaded");
+    } catch (error) {
+      toast.error(describeApiError(error, "registration"));
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   const activeTickets = (summary.data?.ticket_types ?? []).filter((t) => t.is_active);
   // Cancelling is allowed while the event is published or closed; bringing a guest back repeats every check.
   const canChange = canUpdate && (event.status === "PUBLISHED" || event.status === "CLOSED");
+  const canChangeTicketType = canUpdate && event.status === "PUBLISHED" && activeTickets.length > 1;
   const showRegister = canCreate && event.status === "PUBLISHED";
   const rows = list.data?.data ?? [];
+
+  const chosenTicket = activeTickets.find((t) => t.id === selectedTicketId);
 
   return (
     <div className="flex flex-col gap-4">
@@ -302,17 +400,25 @@ export function RegistrationsTab({ event, canCreate, canUpdate }: { event: Staff
               { value: "CANCELLED", label: "Cancelled" },
             ]}
           />
-          <div className="md:w-72">
-            <Input
-              aria-label="Search the guest list"
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-              placeholder="Search name, phone or email"
-              autoComplete="off"
-            />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="sm:w-64">
+              <Input
+                aria-label="Search the guest list"
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
+                placeholder="Search name, phone or email"
+                autoComplete="off"
+              />
+            </div>
+            {canExport && (
+              <Button variant="secondary" loading={downloading} loadingLabel="Downloading" onClick={() => void handleDownloadCsv()}>
+                <DownloadIcon className="size-4" />
+                Download CSV
+              </Button>
+            )}
           </div>
         </div>
 
@@ -347,9 +453,22 @@ export function RegistrationsTab({ event, canCreate, canUpdate }: { event: Staff
                     <StatusPill kind="registration" status={r.status} />
                     {canChange &&
                       (r.status === "CONFIRMED" ? (
-                        <TextLink soft onClick={() => setConfirmCancel(r)}>
-                          Cancel
-                        </TextLink>
+                        <>
+                          {canChangeTicketType && (
+                            <TextLink
+                              soft
+                              onClick={() => {
+                                setSelectedTicketId("");
+                                setTicketTarget(r);
+                              }}
+                            >
+                              Change ticket type
+                            </TextLink>
+                          )}
+                          <TextLink soft onClick={() => setConfirmCancel(r)}>
+                            Cancel
+                          </TextLink>
+                        </>
                       ) : (
                         <TextLink onClick={() => change.mutate({ registration: r, to: "CONFIRMED" })}>Bring back</TextLink>
                       ))}
@@ -387,6 +506,82 @@ export function RegistrationsTab({ event, canCreate, canUpdate }: { event: Staff
           if (target) change.mutate({ registration: target, to: "CANCELLED" });
         }}
       />
+
+      <Modal
+        open={ticketTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !changeTicket.isPending) {
+            setTicketTarget(null);
+            setSelectedTicketId("");
+          }
+        }}
+        size="sm"
+      >
+        <ModalHeader
+          title={`Change ${ticketTarget ? fullName(ticketTarget.person) : "guest"}'s ticket type`}
+          subtitle="They keep their existing confirmation code. No SMS is sent."
+          onClose={() => {
+            if (!changeTicket.isPending) {
+              setTicketTarget(null);
+              setSelectedTicketId("");
+            }
+          }}
+        />
+        <ModalBody>
+          <div className="flex flex-col gap-2.5" role="radiogroup" aria-label="Ticket type">
+            {activeTickets.map((t) => {
+              const isCurrent = t.id === ticketTarget?.ticket_type.id;
+              const isFull = t.remaining === 0;
+              const subtitle = isCurrent
+                ? "Current ticket type"
+                : isFull
+                  ? "Full"
+                  : t.remaining === null
+                    ? "No limit"
+                    : `${formatNumber(t.remaining)} ${t.remaining === 1 ? "place" : "places"} left`;
+
+              return (
+                <SelectCard
+                  key={t.id}
+                  title={t.name}
+                  subtitle={subtitle}
+                  value={isFull && !isCurrent ? "Full" : undefined}
+                  selected={selectedTicketId === t.id}
+                  disabled={isCurrent || isFull || changeTicket.isPending}
+                  onClick={() => setSelectedTicketId(t.id)}
+                />
+              );
+            })}
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <Button
+            variant="secondary"
+            disabled={changeTicket.isPending}
+            onClick={() => {
+              setTicketTarget(null);
+              setSelectedTicketId("");
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            disabled={!selectedTicketId || !ticketTarget}
+            loading={changeTicket.isPending}
+            loadingLabel="Changing"
+            onClick={() => {
+              if (!ticketTarget || !chosenTicket) return;
+              changeTicket.mutate({
+                registrationId: ticketTarget.id,
+                ticketTypeId: chosenTicket.id,
+                ticketTypeName: chosenTicket.name,
+              });
+            }}
+          >
+            Change ticket type
+          </Button>
+        </ModalFooter>
+      </Modal>
     </div>
   );
 }

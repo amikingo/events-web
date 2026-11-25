@@ -5,13 +5,15 @@
  *   GET   /v1/organizations/:organizationId/events/:eventId/registrations          ?status&ticket_type_id&q&page&pageSize
  *   POST  /v1/organizations/:organizationId/events/:eventId/registrations          201 a place was taken, 200 already registered
  *   GET   /v1/organizations/:organizationId/events/:eventId/registrations/summary  places confirmed and left
+ *   GET   /v1/organizations/:organizationId/events/:eventId/registrations/export   ?status&ticket_type_id&q  CSV download (REGISTRATIONS.export)
  *   GET   /v1/organizations/:organizationId/events/:eventId/registrations/:registrationId
- *   PATCH /v1/organizations/:organizationId/events/:eventId/registrations/:registrationId/status   { status }
+ *   PATCH /v1/organizations/:organizationId/events/:eventId/registrations/:registrationId/status       { status }
+ *   PATCH /v1/organizations/:organizationId/events/:eventId/registrations/:registrationId/ticket-type  { ticket_type_id }
  *
  * Refusals to show in words: `registration_closed`, `capacity_reached`, `already_registered`, `ticket_type_required`
  * (see `describeApiError`).
  */
-import { apiPage, apiRequest, apiRequestWithStatus, clampPageSize } from "@/lib/api-client";
+import { apiDownload, apiPage, apiRequest, apiRequestWithStatus, clampPageSize } from "@/lib/api-client";
 import type { Paginated } from "@/lib/api-client";
 import type { PersonInput, RegistrationStatus } from "@/lib/api/persons";
 
@@ -102,4 +104,40 @@ export async function registerGuest(
 /** `CANCELLED` frees the place. `CONFIRMED` brings a cancelled guest back if there is room (every check is repeated). */
 export function setRegistrationStatus(organizationId: string, eventId: string, registrationId: string, status: RegistrationStatus): Promise<Registration> {
   return apiRequest<Registration>(`${base(organizationId, eventId)}/${registrationId}/status`, { method: "PATCH", body: { status } });
+}
+
+/** Moves a confirmed guest to another active ticket type of the same published event. */
+export function changeRegistrationTicketType(
+  organizationId: string,
+  eventId: string,
+  registrationId: string,
+  ticketTypeId: string,
+): Promise<Registration> {
+  return apiRequest<Registration>(`${base(organizationId, eventId)}/${registrationId}/ticket-type`, {
+    method: "PATCH",
+    body: { ticket_type_id: ticketTypeId },
+  });
+}
+
+export interface RegistrationExportFilters {
+  status?: RegistrationStatus;
+  ticketTypeId?: string;
+  q?: string;
+}
+
+/** Downloads all matching guests as a UTF-8 CSV file (no pagination parameters). */
+export function downloadGuestList(
+  organizationId: string,
+  eventId: string,
+  filters: RegistrationExportFilters = {},
+  signal?: AbortSignal,
+): Promise<Blob> {
+  return apiDownload(`${base(organizationId, eventId)}/export`, {
+    query: {
+      status: filters.status,
+      ticket_type_id: filters.ticketTypeId,
+      q: filters.q?.trim() || undefined,
+    },
+    signal,
+  });
 }

@@ -36,6 +36,7 @@ export interface RoleGrantInput {
   view: boolean;
   create: boolean;
   update: boolean;
+  export?: boolean;
 }
 
 export interface RoleCreateInput {
