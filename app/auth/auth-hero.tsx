@@ -1,4 +1,4 @@
-import { formatEventDate } from "@/lib/marketplace/datetime";
+import { formatDateShort } from "@/lib/ethiopian-datetime";
 import type { EventSummary } from "@/types/marketplace";
 
 /**
@@ -58,7 +58,7 @@ export function EventTicker({ events }: { events: EventSummary[] }) {
       <div className="flex w-max animate-marquee-x gap-3 hover:[animation-play-state:paused]">
         {[...items, ...items].map((e, i) => (
           <span key={`${e.id}-${i}`} className="inline-flex items-center gap-2.5 whitespace-nowrap rounded-full border border-white/15 bg-white/10 py-2 pl-4 pr-5 type-body-sm text-white/85 backdrop-blur">
-            <span className="text-accent-light">{formatEventDate(e.startsAt, { weekday: false, year: false, timeZone: e.timezone })}</span>
+            <span className="text-accent-light">{formatDateShort(e.startsAt, e.timezone)}</span>
             {e.title}
           </span>
         ))}

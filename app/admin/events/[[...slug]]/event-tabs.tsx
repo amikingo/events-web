@@ -22,7 +22,7 @@ import { describeApiError } from "@/lib/api/errors";
 import { createTicketType, listTicketTypes, removeEventCover, setTicketTypeActive, updateTicketType, uploadEventCover } from "@/lib/api/events";
 import type { StaffEvent, TicketType } from "@/lib/api/events";
 import { formatBytes, formatNumber } from "@/lib/format";
-import { eventQk } from "@/lib/query-keys";
+import { eventQk, registrationQk } from "@/lib/query-keys";
 
 /** CLOSED and CANCELLED events can't change at all, ticket types and cover included. */
 export const isEditable = (event: StaffEvent) => event.status === "DRAFT" || event.status === "PUBLISHED";
@@ -46,7 +46,11 @@ export function TicketTypesTab({ event, canUpdate }: { event: StaffEvent; canUpd
   });
   const state = { status: query.isPending ? "loading" : query.isError ? "error" : "ready", items: query.data ?? [], error: query.error } as const;
   /** After a change: the ticket list, and the events (publishing depends on having an active ticket type). */
-  const refresh = () => void queryClient.invalidateQueries({ queryKey: eventQk.tickets(orgId, event.id) });
+  // A ticket type's limit or status changes the guest summary too.
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: eventQk.tickets(orgId, event.id) });
+    void queryClient.invalidateQueries({ queryKey: registrationQk.all(orgId, event.id) });
+  };
 
   const save = useMutation({
     mutationFn: ({ target, input }: { target: TicketType | "new"; input: { code: string; name: string; capacity: number | null } }) =>

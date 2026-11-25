@@ -283,6 +283,8 @@ export const COMMAND_PALETTE_ITEMS: SearchCommandItem[] = [
   { id: "/admin/components", moduleId: "components", title: "Component Library", group: "Navigation" },
 ];
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Breadcrumb resolver. Dashboard pages live under /admin, so the first segment is the section, not a crumb. */
 export function getBreadcrumbTrail(pathname: string): { label: string; href?: string }[] {
   // The signed-in start page: it opens the first page the role may see.
@@ -305,7 +307,12 @@ export function getBreadcrumbTrail(pathname: string): { label: string; href?: st
     if (matchingNav) {
       label = matchingNav.label;
     } else if (part === "new") {
-      label = "Create New";
+      label = "New";
+    } else if (part === "edit") {
+      label = "Edit";
+    } else if (UUID.test(part)) {
+      // A record id from the API: the page itself names the record, so the crumb just says where you are.
+      label = "Details";
     } else if (part.startsWith("USR-") || part.startsWith("ORG-") || part.startsWith("TX-") || part.startsWith("TSK-")) {
       label = part;
     }

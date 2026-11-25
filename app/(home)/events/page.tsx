@@ -14,7 +14,7 @@ import { eventsService } from "../../../lib/services/events-service";
 
 export const metadata: Metadata = {
   title: "Explore events",
-  description: "Search concerts, conferences, festivals, workshops and more by date, city and price.",
+  description: "Search concerts, conferences, festivals, workshops and more by date, city and category.",
 };
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;

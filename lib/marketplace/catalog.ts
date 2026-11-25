@@ -74,6 +74,9 @@ function venueOf(card: Pick<PublicEventCard, "organization" | "slug" | "venue">)
  * Registration is the only "ticket" there is. One free ticket type stands for it, so the existing availability logic
  * (on sale, opens soon, closed) reads the API's `registration_open` and the registration window without change.
  */
+/** Far above any real event: remaining places are never shown as few. */
+const NO_PUBLIC_LIMIT = 1_000_000;
+
 function registrationTicket(startsAt: string, endsAt: string, open: boolean, opensAt: string | null, closesAt: string | null, name = "Registration", code = "REGISTRATION"): TicketType {
   const past = new Date(Date.now() - 365 * 86_400_000).toISOString();
   const salesStartAt = open ? past : (opensAt ?? past);
@@ -85,7 +88,9 @@ function registrationTicket(startsAt: string, endsAt: string, open: boolean, ope
     kind: "free",
     description: "",
     price: 0,
-    quantityTotal: 1,
+    // The public API doesn't say how many places are left, so the made-up ticket has no limit: "Few left" or
+    // "Sold out" must never be guessed. A full event shows up as registration_closed / capacity_reached instead.
+    quantityTotal: NO_PUBLIC_LIMIT,
     quantitySold: 0,
     maxPerOrder: 1,
     salesStartAt,

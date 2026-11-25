@@ -4,9 +4,13 @@ import { InputAddon, InputGroup } from "./input";
 import type { InputGroupProps } from "./input";
 import { CheckThinIcon, FlagEthiopia } from "./icons";
 
-/** Digits only, at most nine, grouped 3-3-3 ("911 204 412"). */
+/**
+ * Digits only, at most nine, grouped 3-3-3 ("911 204 412"). A pasted or autofilled international number
+ * ("+251911204412", "251 911 204 412") or a local one ("0911204412") keeps its nine national digits: an Ethiopian
+ * mobile never starts with 2, so a leading 251 before a 7 or 9 is always the country code.
+ */
 export function formatEthiopianPhone(raw: string): string {
-  const d = raw.replace(/\D/g, "").replace(/^0/, "").slice(0, 9);
+  const d = raw.replace(/\D/g, "").replace(/^251(?=[79])/, "").replace(/^0/, "").slice(0, 9);
   return [d.slice(0, 3), d.slice(3, 6), d.slice(6, 9)].filter(Boolean).join(" ");
 }
 

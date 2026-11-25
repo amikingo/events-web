@@ -5,7 +5,7 @@ import { Container, EventGrid } from "@/components/marketplace/section";
 import { RegisterForm } from "@/components/marketplace/public/register-form";
 import { Card } from "@/components/ui/card";
 import { MonitorIcon } from "@/components/ui/icons";
-import { formatEventDate } from "@/lib/marketplace/datetime";
+import { formatDateShort, formatMomentFull } from "@/lib/ethiopian-datetime";
 import { eventsService } from "@/lib/services/events-service";
 
 type Params = Promise<{ org: string; slug: string }>;
@@ -22,7 +22,7 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
   const { event, city } = detail;
   return {
     title: event.title,
-    description: event.description[0]?.slice(0, 160) ?? `${event.title}, by ${detail.organizer.name}. ${formatEventDate(event.startsAt, { weekday: true, timeZone: event.timezone })}${city ? `, ${city.name}` : ""}.`,
+    description: event.description[0]?.slice(0, 160) ?? `${event.title}, by ${detail.organizer.name}. ${formatDateShort(event.startsAt, event.timezone)}${city ? `, ${city.name}` : ""}.`,
   };
 }
 
@@ -31,7 +31,7 @@ function registrationClosedText(event: { endsAt: string; timezone?: string; regi
   const now = Date.parse(nowIso);
   if (now >= Date.parse(event.endsAt)) return "This event has ended.";
   const opens = event.registration?.opensAt;
-  if (opens && now < Date.parse(opens)) return `Registration opens ${formatEventDate(opens, { weekday: true, timeZone: event.timezone })}.`;
+  if (opens && now < Date.parse(opens)) return `Registration opens ${formatMomentFull(opens, event.timezone)}.`;
   return "Registration for this event has closed.";
 }
 

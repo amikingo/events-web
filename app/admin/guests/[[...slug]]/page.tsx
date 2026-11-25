@@ -24,7 +24,7 @@ import type { Person, PersonInput } from "@/lib/api/persons";
 import { MODULE_CODES } from "@/lib/constants/modules";
 import { formatDate } from "@/lib/format";
 import { personQk } from "@/lib/query-keys";
-import { formatInZone } from "@/lib/timezone";
+import { formatMomentShort } from "@/lib/ethiopian-datetime";
 import { GuestForm } from "./guest-form";
 
 const BASE = "/admin/guests";
@@ -85,7 +85,7 @@ function GuestRegistrations({ organizationId, personId }: { organizationId: stri
           title: r.event.name,
           meta: (
             <>
-              <code>{r.code}</code> · {r.ticket_type.name} · {formatInZone(r.event.starts_at, r.event.timezone)}
+              <code>{r.code}</code> · {r.ticket_type.name} · {r.event.starts_at ? formatMomentShort(r.event.starts_at, r.event.timezone) : "Date not set"}
             </>
           ),
           trailing: <Pill>{r.status === "CONFIRMED" ? "Confirmed" : "Cancelled"}</Pill>,

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { formatEventDate } from "../../../lib/marketplace/datetime";
+import { formatMomentShort } from "../../../lib/ethiopian-datetime";
 import { exploreHref } from "../../../lib/marketplace/query";
 import { cn } from "../../../lib/utils";
 import type { City, EventSummary } from "../../../types/marketplace";
@@ -14,7 +14,7 @@ function Poster({ event, className }: { event: EventSummary; className?: string 
     <div className={cn("relative aspect-[3/4] w-full flex-none overflow-hidden rounded-lg ring-1 ring-border", className)}>
       <EventCover seed={event.id} pattern={event.coverPattern} category={event.categoryId} src={event.coverUrl} />
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[color-mix(in_srgb,var(--color-paper-ink)_90%,transparent)] to-transparent px-3 pb-3 pt-10">
-        <span className="block type-label text-white/70">{formatEventDate(event.startsAt, { weekday: true, year: false, timeZone: event.timezone })}</span>
+        <span className="block type-label text-white/70">{formatMomentShort(event.startsAt, event.timezone)}</span>
         <span className="block type-body-sm font-semibold text-white line-clamp-2">{event.title}</span>
       </div>
     </div>
@@ -53,7 +53,7 @@ export function Hero({ cities, wall, liveCount }: { cities: City[]; wall: EventS
         <div className="min-w-0 lg:py-20">
           <h1 id="hero-title" className={cn("m-0 mt-5 max-w-[640px] text-text", landingType.display)}>
             Every event worth going to.{" "}
-            <span className="bg-gradient-to-r from-accent-text via-accent to-accent-text bg-clip-text text-transparent">Tickets in seconds.</span>
+            <span className="bg-gradient-to-r from-accent-text via-accent to-accent-text bg-clip-text text-transparent">Register in a minute.</span>
           </h1>
           <p className={cn("m-0 mt-6 max-w-[500px] text-text-soft", landingType.lead)}>Concerts, conferences, festivals and workshops across Ethiopia.</p>
 

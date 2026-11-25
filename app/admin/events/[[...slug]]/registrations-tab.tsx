@@ -10,6 +10,7 @@ import { ErrorBanner } from "@/components/ui/error-banner";
 import { Field } from "@/components/ui/field";
 import { UserIcon } from "@/components/ui/icons";
 import { Input } from "@/components/ui/input";
+import { isValidEthiopianPhone, PhoneInput } from "@/components/ui/phone-input";
 import { RecordHeading, RecordRows } from "@/components/ui/record-view";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Select } from "@/components/ui/select";
@@ -26,7 +27,7 @@ import { getRegistrationSummary, listRegistrations, registerGuest, setRegistrati
 import type { Registration } from "@/lib/api/registrations";
 import { formatNumber } from "@/lib/format";
 import { personQk, registrationQk } from "@/lib/query-keys";
-import { formatInZone } from "@/lib/timezone";
+import { formatMomentShort } from "@/lib/ethiopian-datetime";
 
 const PAGE_SIZE = 20;
 const fullName = (p: { first_name: string; last_name: string | null }) => [p.first_name, p.last_name].filter(Boolean).join(" ");
@@ -51,7 +52,7 @@ function RegisterForm({ event, ticketTypes, onDone }: RegisterFormProps) {
   const [search, setSearch] = useState("");
   const [picked, setPicked] = useState<Person | null>(null);
   const [ticketTypeId, setTicketTypeId] = useState("");
-  const [errors, setErrors] = useState<{ firstName?: string; person?: string; ticket?: string }>({});
+  const [errors, setErrors] = useState<{ firstName?: string; phone?: string; person?: string; ticket?: string }>({});
   const [failure, setFailure] = useState<string | null>(null);
 
   const q = useDebouncedValue(search.trim(), 300);
@@ -74,7 +75,7 @@ function RegisterForm({ event, ticketTypes, onDone }: RegisterFormProps) {
                 person: {
                   first_name: fields.firstName.trim(),
                   last_name: fields.lastName.trim() || null,
-                  phone: fields.phone.trim() || null,
+                  phone: fields.phone ? `+251${fields.phone.replace(/\D/g, "")}` : null,
                   email: fields.email.trim() || null,
                 },
               }),
@@ -96,11 +97,12 @@ function RegisterForm({ event, ticketTypes, onDone }: RegisterFormProps) {
     e.preventDefault();
     const next = {
       firstName: mode === "new" && !fields.firstName.trim() ? "Enter the guest's first name." : undefined,
+      phone: mode === "new" && fields.phone && !isValidEthiopianPhone(fields.phone) ? "Enter all nine digits, starting with 9 or 7, or leave it empty." : undefined,
       person: mode === "existing" && !picked ? "Search for the guest and select them." : undefined,
       ticket: ticketTypes.length > 1 && !ticketTypeId ? "Choose a ticket type." : undefined,
     };
     setErrors(next);
-    if (next.firstName || next.person || next.ticket) return;
+    if (next.firstName || next.phone || next.person || next.ticket) return;
     setFailure(null);
     register.mutate();
   }
@@ -132,8 +134,8 @@ function RegisterForm({ event, ticketTypes, onDone }: RegisterFormProps) {
             <Field label="Last name" htmlFor="rg-last">
               <Input id="rg-last" value={fields.lastName} onChange={(e) => setFields((f) => ({ ...f, lastName: e.target.value }))} autoComplete="off" />
             </Field>
-            <Field label="Phone" htmlFor="rg-phone" hint="An Ethiopian mobile gets the confirmation SMS.">
-              <Input id="rg-phone" inputMode="tel" value={fields.phone} onChange={(e) => setFields((f) => ({ ...f, phone: e.target.value }))} placeholder="0911 204 412" autoComplete="off" />
+            <Field label="Mobile number" htmlFor="rg-phone" error={errors.phone} hint="Optional. Their confirmation SMS goes here.">
+              <PhoneInput id="rg-phone" value={fields.phone} error={!!errors.phone} onValueChange={(phone) => setFields((f) => ({ ...f, phone }))} autoComplete="off" />
             </Field>
             <Field label="Email" htmlFor="rg-email">
               <Input id="rg-email" type="email" value={fields.email} onChange={(e) => setFields((f) => ({ ...f, email: e.target.value }))} autoComplete="off" />
@@ -336,7 +338,7 @@ export function RegistrationsTab({ event, canCreate, canUpdate }: { event: Staff
                 meta: (
                   <>
                     <code>{r.code}</code> · {r.ticket_type.name} · {r.person.phone ?? r.person.email ?? "No contact"} · {r.source === "PUBLIC" ? "Signed up online" : "Added by staff"} ·{" "}
-                    {formatInZone(r.registered_at, event.timezone)}
+                    {formatMomentShort(r.registered_at, event.timezone)}
                   </>
                 ),
                 trailing: (

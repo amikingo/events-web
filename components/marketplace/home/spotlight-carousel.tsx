@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { formatEventWhen } from "../../../lib/marketplace/datetime";
+import { formatMomentShort } from "../../../lib/ethiopian-datetime";
 import { cn } from "../../../lib/utils";
 import type { EventSummary } from "../../../types/marketplace";
 import { Button } from "../../ui/button";
@@ -140,7 +140,7 @@ export function SpotlightCarousel({ events, now }: { events: EventSummary[]; now
                 <p className={cn("m-0 max-w-[560px] text-white/80 max-sm:line-clamp-2", landingType.lead)}>{e.summary}</p>
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
                   <p className="m-0 type-body-sm text-white/75">
-                    {formatEventWhen(e.startsAt, e.endsAt, e.timezone)}
+                    {formatMomentShort(e.startsAt, e.timezone)}
                     <span className="max-sm:block">
                       <span className="sm:mx-1.5 max-sm:hidden">·</span>
                       {whereLabel(e)}
@@ -149,7 +149,7 @@ export function SpotlightCarousel({ events, now }: { events: EventSummary[]; now
                   <div className="relative z-[1] flex items-center gap-3">
                     <span className="type-h3 font-semibold text-white">{priceLabel(e)}</span>
                     <Button asChild>
-                      <Link href={`/events/${e.slug}#tickets`}>Get tickets</Link>
+                      <Link href={`/events/${e.slug}#tickets`}>Register</Link>
                     </Button>
                   </div>
                 </div>

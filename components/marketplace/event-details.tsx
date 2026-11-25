@@ -1,7 +1,8 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { formatNumber } from "../../lib/format";
-import { formatEventDate, formatEventDateLong, formatEventTime, formatEventWhen, zoneNote } from "../../lib/marketplace/datetime";
+import { formatDateShort, formatMomentFull, formatRangeFull } from "../../lib/ethiopian-datetime";
+import { formatEventTime, zoneNote } from "../../lib/marketplace/datetime";
 import { eventPhase } from "../../lib/marketplace/event-state";
 import { exploreHref } from "../../lib/marketplace/query";
 import type { AgendaDay, City, EventItem, Organizer, Speaker, Venue } from "../../types/marketplace";
@@ -55,11 +56,8 @@ export function EventDetailsHeader({ event, organizer, venue, city, categoryName
 
       <dl className="m-0 mt-5 grid gap-4 sm:grid-cols-2">
         <Fact icon={<CalendarIcon />} label="Date and time">
-          <span className="block font-semibold text-text">{formatEventDateLong(event.startsAt, event.timezone)}</span>
-          <span className="block">
-            {formatEventWhen(event.startsAt, event.endsAt, event.timezone).split(" · ")[1] ?? formatEventWhen(event.startsAt, event.endsAt, event.timezone)}
-            {zoneNote(event.timezone) && <span className="text-text-faint"> · {zoneNote(event.timezone)}</span>}
-          </span>
+          <span className="block font-semibold text-text">{formatRangeFull(event.startsAt, event.endsAt, event.timezone)}</span>
+          {zoneNote(event.timezone) && <span className="block text-text-faint">{zoneNote(event.timezone)}</span>}
         </Fact>
         <Fact icon={event.format === "online" ? <MonitorIcon /> : <MapPinIcon />} label="Location">
           <span className="block font-semibold text-text">{where}</span>
@@ -111,17 +109,17 @@ export function EventNotices({ event, now }: { event: EventItem; now: string }) 
       {event.lifecycle === "postponed" && event.originalStartsAt && phase !== "ended" && (
         <AlertCard
           tone="warning"
-          title={`Rescheduled to ${formatEventDate(event.startsAt, { weekday: true, timeZone: event.timezone })}`}
+          title={`Rescheduled to ${formatMomentFull(event.startsAt, event.timezone)}`}
           body={
             <>
-              Originally planned for {formatEventDate(event.originalStartsAt, { weekday: true, timeZone: event.timezone })}. {event.lifecycleNote}
+              Originally planned for {formatMomentFull(event.originalStartsAt, event.timezone)}. {event.lifecycleNote}
             </>
           }
         />
       )}
-      {latest && event.lifecycle === "published" && phase !== "ended" && <AlertCard tone="info" title="Event details updated" time={formatEventDate(latest.at, { year: false })} body={latest.summary} />}
+      {latest && event.lifecycle === "published" && phase !== "ended" && <AlertCard tone="info" title="Event details updated" time={formatDateShort(latest.at, event.timezone)} body={latest.summary} />}
       {phase === "ended" && event.lifecycle !== "cancelled" && <AlertCard tone="info" title="This event has ended" body="Thanks to everyone who came. Follow the organizer to hear about the next one." />}
-      {phase === "ongoing" && event.lifecycle !== "cancelled" && <AlertCard tone="success" title="Happening now" body={`Runs until ${formatEventDate(event.endsAt, { weekday: true, year: false, timeZone: event.timezone })}, ${formatEventTime(event.endsAt, event.timezone)}.`} />}
+      {phase === "ongoing" && event.lifecycle !== "cancelled" && <AlertCard tone="success" title="Happening now" body={`Runs until ${formatMomentFull(event.endsAt, event.timezone)}.`} />}
     </div>
   );
 }

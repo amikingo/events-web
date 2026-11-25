@@ -16,6 +16,11 @@ import type { Category, City, CityId, EventItem, EventQuery, EventQueryResult, E
  * components of a single request (one consistent "now" per page); nothing is kept between requests.
  */
 const getCatalog = cache(async (): Promise<Catalog> => loadCatalog(new Date()));
+/**
+ * One event page fetch per request: the page and its generateMetadata both ask for the event, and the Next server
+ * shares one rate limit against the API for every visitor, so the second ask must not call the API again.
+ */
+const getEventDetail = cache((orgSlug: string, eventSlug: string) => loadEventDetail(orgSlug, eventSlug));
 
 export interface HomeData {
   now: string;
@@ -199,7 +204,7 @@ export const eventsService = {
     const c = await getCatalog();
     const now = Date.parse(c.generatedAt);
     // The event's own page has the description and ticket types the list doesn't; it also opens unlisted and past events.
-    const loaded = await loadEventDetail(orgSlug, eventSlug);
+    const loaded = await getEventDetail(orgSlug, eventSlug);
     if (!loaded) return null;
     const { event, organizer, venue, city, category } = loaded;
     const live = c.events.filter((e) => e.id !== event.id && isDiscoverable(e, now));

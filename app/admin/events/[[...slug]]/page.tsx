@@ -25,7 +25,7 @@ import { listAllVenues } from "@/lib/api/venues";
 import { MODULE_CODES } from "@/lib/constants/modules";
 import { formatDate, formatNumber } from "@/lib/format";
 import { clientQk, eventQk, organizationQk, venueQk } from "@/lib/query-keys";
-import { formatInZone } from "@/lib/timezone";
+import { formatDateShort, formatMomentFull, formatMomentShort } from "@/lib/ethiopian-datetime";
 import { EventForm } from "./event-form";
 import { CoverTab, TicketTypesTab, isEditable } from "./event-tabs";
 import { RegistrationsTab } from "./registrations-tab";
@@ -45,7 +45,9 @@ const initialsOf = (name: string) =>
 
 const statusPill = (e: StaffEvent) => <StatusPill kind="event" status={e.display_status} />;
 const visibilityLabel = (e: StaffEvent) => (e.visibility === "PUBLIC" ? "Public" : "Link only");
-const when = (e: StaffEvent) => formatInZone(e.starts_at, e.timezone);
+const when = (e: StaffEvent) => (e.starts_at ? formatMomentShort(e.starts_at, e.timezone) : "Not set");
+/** The full Ethiopian-first text on the record page; "Not set" while a draft has no date yet. */
+const full = (iso: string | null, timeZone: string) => (iso ? formatMomentFull(iso, timeZone) : "Not set");
 
 /** Change the address without rebuilding the page (so a record page loads once). */
 function go(path: string) {
@@ -100,8 +102,14 @@ function EventsView({ organizationId }: { organizationId: string }) {
   // The organization's timezone: new events' times are typed in it.
   const orgTimeZone = useQuery({ queryKey: organizationQk.detail(organizationId), queryFn: ({ signal }) => getOrganization(organizationId, signal) }).data?.timezone ?? FALLBACK_TIMEZONE;
 
-  /** After any change: every event query of this organization is refetched. */
-  const saved = () => void queryClient.invalidateQueries({ queryKey: eventQk.all(organizationId) });
+  /**
+   * After any change: every event query of this organization is refetched, and so are its guest summaries and lists
+   * (a capacity or status change moves "places left" and who can still register).
+   */
+  const saved = () => {
+    void queryClient.invalidateQueries({ queryKey: eventQk.all(organizationId) });
+    void queryClient.invalidateQueries({ queryKey: ["registrations", organizationId] });
+  };
 
   const create = useMutation({ mutationFn: (input: EventInput) => createEvent(organizationId, input), onSuccess: saved });
   const update = useMutation({
@@ -294,7 +302,7 @@ function EventsView({ organizationId }: { organizationId: string }) {
                   description:
                     e.visibility === "PUBLIC"
                       ? "It appears on the public site, and its web address is fixed from now on."
-                      : "Anyone with the link can open it, and its web address is fixed from now on.",
+                      : "This event won't appear in the catalog: only people with the link can register. Switch it to Public to list it. Its web address is fixed from now on.",
                   confirmLabel: "Publish event",
                   onConfirm: () => changeStatus.mutate({ event: e, status: "PUBLISHED" }),
                 }),
@@ -322,7 +330,7 @@ function EventsView({ organizationId }: { organizationId: string }) {
         };
       }}
       stats={(e) => [
-        { label: "Starts", value: formatInZone(e.starts_at, e.timezone, { time: false }) },
+        { label: "Starts", value: e.starts_at ? formatDateShort(e.starts_at, e.timezone) : "Not set" },
         { label: "Visibility", value: visibilityLabel(e) },
         { label: "Capacity", value: e.capacity ? formatNumber(e.capacity) : "No limit" },
         { label: "Created", value: formatDate(e.created_at, { year: false }) },
@@ -332,8 +340,8 @@ function EventsView({ organizationId }: { organizationId: string }) {
           <RecordHeading>Details</RecordHeading>
           <RecordKv
             items={[
-              { label: "Starts", value: formatInZone(e.starts_at, e.timezone) },
-              { label: "Ends", value: formatInZone(e.ends_at, e.timezone) },
+              { label: "Starts", value: full(e.starts_at, e.timezone) },
+              { label: "Ends", value: full(e.ends_at, e.timezone) },
               { label: "Venue", value: venueName(e.venue_id) },
               { label: "Client", value: clientName(e.customer_account_id) },
               { label: "Category", value: e.category ?? "None" },
@@ -363,10 +371,10 @@ function EventsView({ organizationId }: { organizationId: string }) {
                 <RecordHeading>When</RecordHeading>
                 <RecordKv
                   items={[
-                    { label: "Starts", value: formatInZone(e.starts_at, e.timezone) },
-                    { label: "Ends", value: formatInZone(e.ends_at, e.timezone) },
-                    { label: "Sign-ups open", value: e.registration_opens_at ? formatInZone(e.registration_opens_at, e.timezone) : "When published" },
-                    { label: "Sign-ups close", value: e.registration_closes_at ? formatInZone(e.registration_closes_at, e.timezone) : "When the event ends" },
+                    { label: "Starts", value: full(e.starts_at, e.timezone) },
+                    { label: "Ends", value: full(e.ends_at, e.timezone) },
+                    { label: "Sign-ups open", value: e.registration_opens_at ? full(e.registration_opens_at, e.timezone) : "When published" },
+                    { label: "Sign-ups close", value: e.registration_closes_at ? full(e.registration_closes_at, e.timezone) : "When the event ends" },
                     { label: "Timezone", value: e.timezone.replace(/_/g, " ") },
                   ]}
                 />

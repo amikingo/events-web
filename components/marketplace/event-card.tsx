@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { formatCurrency } from "../../lib/format";
-import { dateChip, formatEventDate, formatEventTime } from "../../lib/marketplace/datetime";
+import { formatMomentShort } from "../../lib/ethiopian-datetime";
+import { dateChip } from "../../lib/marketplace/datetime";
 import { eventPhase } from "../../lib/marketplace/event-state";
 import { cn } from "../../lib/utils";
 import type { EventSummary } from "../../types/marketplace";
@@ -53,7 +54,7 @@ export function EventCard({ event, now, layout = "vertical", rank, headingLevel 
   const nowMs = Date.parse(now);
   const ended = event.lifecycle === "cancelled" || eventPhase(event, nowMs) === "ended";
   const Heading = headingLevel;
-  const when = `${formatEventDate(event.startsAt, { weekday: true, year: false, timeZone: event.timezone })} · ${formatEventTime(event.startsAt, event.timezone)}`;
+  const when = formatMomentShort(event.startsAt, event.timezone);
   const online = event.format === "online";
 
   if (layout === "horizontal") {
@@ -98,7 +99,7 @@ export function EventCard({ event, now, layout = "vertical", rank, headingLevel 
       <div className="flex flex-1 flex-col gap-1 pt-3">
         <p className="m-0 type-label text-accent-text">
           {event.categoryName}
-          <span className="text-text-faint"> · {formatEventTime(event.startsAt, event.timezone)}</span>
+          <span className="text-text-faint"> · {formatMomentShort(event.startsAt, event.timezone)}</span>
         </p>
         <Heading className="m-0 type-h3 text-text line-clamp-2 group-hover:text-accent-text">
           <Link href={`/events/${event.slug}`} className="rounded-sm outline-offset-4 after:absolute after:inset-0 after:content-['']">

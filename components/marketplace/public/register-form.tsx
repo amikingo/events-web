@@ -15,7 +15,7 @@ import { describeApiError } from "@/lib/api/errors";
 import { registerForEvent } from "@/lib/api/public-events";
 import type { PublicRegistration, PublicRegistrationInput } from "@/lib/api/public-events";
 import { phoneDigits, validateEmail, validatePhone } from "@/lib/marketplace/validation";
-import { formatInZone } from "@/lib/timezone";
+import { formatMomentFull } from "@/lib/ethiopian-datetime";
 
 interface RegisterFormProps {
   organizationSlug: string;
@@ -63,7 +63,7 @@ function Confirmation({ registration, phone, alreadyProcessed, onAnother }: { re
         </div>
         <div className="flex justify-between gap-4 py-2">
           <dt className="type-body-sm text-text-faint">When</dt>
-          <dd className="m-0 text-right type-body-sm text-text">{formatInZone(registration.event.starts_at, registration.event.timezone)}</dd>
+          <dd className="m-0 text-right type-body-sm text-text">{registration.event.starts_at ? formatMomentFull(registration.event.starts_at, registration.event.timezone) : "To be announced"}</dd>
         </div>
         <div className="flex justify-between gap-4 py-2">
           <dt className="type-body-sm text-text-faint">Ticket</dt>
@@ -86,6 +86,15 @@ function Confirmation({ registration, phone, alreadyProcessed, onAnother }: { re
  * new `Idempotency-Key`, except an automatic retry after a network failure, which reuses the key so a place is never
  * taken twice.
  */
+/**
+ * A random Idempotency-Key. crypto.randomUUID exists only on HTTPS and localhost; on plain HTTP (a phone testing
+ * against a laptop on the network) the key is built from crypto.getRandomValues instead.
+ */
+function newIdempotencyKey(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 export function RegisterForm({ organizationSlug, eventSlug, ticketTypes, privacyVersion }: RegisterFormProps) {
   const router = useRouter();
   const [values, setValues] = useState({ firstName: "", lastName: "", phone: "", email: "", affiliation: "", ticket: "", privacy: false });
@@ -93,7 +102,8 @@ export function RegisterForm({ organizationSlug, eventSlug, ticketTypes, privacy
   const [failure, setFailure] = useState<{ message: string; reload: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<{ registration: PublicRegistration; alreadyProcessed: boolean; phone: string } | null>(null);
-  // The last submission that failed on the network: submitting the same form again reuses its key.
+  // The last submission whose outcome is unknown (network error, timeout, server error): submitting the same form
+  // again reuses its key, so the API returns that registration instead of making a second one.
   const pending = useRef<{ signature: string; key: string } | null>(null);
 
   function set<K extends keyof typeof values>(key: K, value: (typeof values)[K]) {
@@ -124,7 +134,7 @@ export function RegisterForm({ organizationSlug, eventSlug, ticketTypes, privacy
       privacy_notice_version: privacyVersion,
     };
     const signature = JSON.stringify(input);
-    const key = pending.current?.signature === signature ? pending.current.key : crypto.randomUUID();
+    const key = pending.current?.signature === signature ? pending.current.key : newIdempotencyKey();
     setFailure(null);
     setBusy(true);
     try {
@@ -132,9 +142,12 @@ export function RegisterForm({ organizationSlug, eventSlug, ticketTypes, privacy
       pending.current = null;
       setDone({ registration, alreadyProcessed, phone: values.phone.trim() });
     } catch (error) {
-      // Only a network failure may be retried with the same key; any answer from the API is final for this form.
-      pending.current = error instanceof ApiError && error.code === "network_error" ? { signature, key } : null;
-      setFailure({ message: describeApiError(error), reload: error instanceof ApiError && error.code === "privacy_notice_outdated" });
+      // A clear refusal (4xx) is final: the next press is a new submission with a new key. Anything else may have
+      // registered the guest already, so the same form keeps the same key.
+      const refused = error instanceof ApiError && error.status >= 400 && error.status < 500;
+      pending.current = refused ? null : { signature, key };
+      const message = error instanceof ApiError && error.status === 404 ? "This event isn't open for registration any more." : describeApiError(error);
+      setFailure({ message, reload: error instanceof ApiError && error.code === "privacy_notice_outdated" });
     } finally {
       setBusy(false);
     }
