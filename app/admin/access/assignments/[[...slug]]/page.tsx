@@ -19,13 +19,14 @@ import { toast } from "@/components/ui/toaster";
 import { listAllBranches } from "@/lib/api/branches";
 import { describeApiError } from "@/lib/api/errors";
 import { listRoles } from "@/lib/api/roles";
-import { changeStaffAssignment, listStaffAssignments, setStaffActive } from "@/lib/api/staff";
+import { changeStaffAssignmentWithMessage, listStaffAssignments, setStaffActive } from "@/lib/api/staff";
 import type { StaffAssignment } from "@/lib/api/staff";
 import { MODULE_CODES } from "@/lib/constants/modules";
 import { useOrganization } from "@/lib/organization-context";
 import { branchQk, roleQk, staffQk } from "@/lib/query-keys";
 import { AddStaffForm } from "./add-staff-form";
 import { ChangeRoleForm } from "./change-role-form";
+import { StaffOverridesCard } from "./staff-overrides-card";
 
 const BASE = "/admin/access/assignments";
 const MODULE = MODULE_CODES.USER_ROLES;
@@ -78,8 +79,12 @@ function StaffView({ organizationId }: { organizationId: string }) {
 
   const saved = () => void queryClient.invalidateQueries({ queryKey: staffQk.all(organizationId) });
   const change = useMutation({
-    mutationFn: ({ id, changes }: { id: string; changes: { role_id?: string; branch_id?: string | null } }) => changeStaffAssignment(organizationId, id, changes),
-    onSuccess: saved,
+    mutationFn: ({ id, changes }: { id: string; changes: { role_id?: string; branch_id?: string | null } }) =>
+      changeStaffAssignmentWithMessage(organizationId, id, changes),
+    onSuccess: (_res, vars) => {
+      saved();
+      void queryClient.invalidateQueries({ queryKey: staffQk.overrides(organizationId, vars.id) });
+    },
   });
   const toggle = useMutation({
     mutationFn: ({ assignment, isActive }: { assignment: StaffAssignment; isActive: boolean }) => setStaffActive(organizationId, assignment.id, isActive),
@@ -132,9 +137,31 @@ function StaffView({ organizationId }: { organizationId: string }) {
         onCancel={() => go(`${BASE}/${existing.id}`)}
         onSubmit={async (changes) => {
           try {
-            if (Object.keys(changes).length) await change.mutateAsync({ id: existing.id, changes });
-            toast.success("Role changed", { body: "It applies on their next request." });
-            go(`${BASE}/${existing.id}`);
+            if (Object.keys(changes).length) {
+              const { assignment, message } = await change.mutateAsync({ id: existing.id, changes });
+              go(`${BASE}/${existing.id}`);
+              if ((assignment.override_count ?? 0) > 0 && assignment.role_changed !== false) {
+                toast.warning(
+                  message || `Role changed. This person still has ${assignment.override_count} permission overrides: review them.`,
+                  {
+                    actions: [
+                      {
+                        label: "Review access",
+                        onClick: () => {
+                          requestAnimationFrame(() => {
+                            document.getElementById("access-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                          });
+                        },
+                      },
+                    ],
+                  },
+                );
+              } else {
+                toast.success("Role changed", { body: "It applies on their next request." });
+              }
+            } else {
+              go(`${BASE}/${existing.id}`);
+            }
           } catch (e) {
             throw new Error(describeApiError(e, "person"));
           }
@@ -233,9 +260,17 @@ function StaffView({ organizationId }: { organizationId: string }) {
       page={{
         tabs: [{ id: "overview", label: "Overview" }],
         content: (a) => (
-          <div>
-            <RecordHeading>Details</RecordHeading>
-            <RecordKv items={[{ label: "Name", value: nameOf(a) }, { label: "Mobile", value: a.profile?.mobile ?? "—" }, { label: "Role", value: a.role.name }, { label: "Where", value: where(a) }]} />
+          <div className="flex flex-col gap-6">
+            <div>
+              <RecordHeading>Details</RecordHeading>
+              <RecordKv items={[{ label: "Name", value: nameOf(a) }, { label: "Mobile", value: a.profile?.mobile ?? "—" }, { label: "Role", value: a.role.name }, { label: "Where", value: where(a) }]} />
+            </div>
+            <StaffOverridesCard
+              organizationId={organizationId}
+              assignmentId={a.id}
+              assignmentUserId={a.user_id}
+              assignmentRoleId={a.role.id}
+            />
           </div>
         ),
         rail: (a) => (

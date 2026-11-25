@@ -72,12 +72,63 @@ export async function assignStaff(organizationId: string, input: StaffAssignment
   return { assignment: data, roleGiven: status === 201 };
 }
 
+export type StaffOverrideAction = "view" | "create" | "update" | "export";
+
+export interface StaffOverrideModule {
+  module_code: string;
+  module_name: string;
+  actions: StaffOverrideAction[];
+  role: Record<StaffOverrideAction, boolean>;
+  override: Record<StaffOverrideAction, boolean | null>;
+  effective: Record<StaffOverrideAction, boolean>;
+}
+
+export interface StaffOverrides {
+  assignment_id: string;
+  role: { id: string; code: string; name: string };
+  overridable: boolean;
+  modules: StaffOverrideModule[];
+}
+
+export interface StaffOverrideInput {
+  module_code: string;
+  view?: boolean | null;
+  create?: boolean | null;
+  update?: boolean | null;
+  export?: boolean | null;
+}
+
+export type StaffAssignmentUpdateResult = StaffAssignment & { role_changed?: boolean; override_count?: number };
+
 /** `branch_id: null` makes the role organization-wide again. */
-export function changeStaffAssignment(organizationId: string, assignmentId: string, changes: { role_id?: string; branch_id?: string | null }): Promise<StaffAssignment> {
-  return apiRequest<StaffAssignment>(`${base(organizationId)}/staff-assignments/${assignmentId}`, { method: "PATCH", body: changes });
+export function changeStaffAssignment(organizationId: string, assignmentId: string, changes: { role_id?: string; branch_id?: string | null }): Promise<StaffAssignmentUpdateResult> {
+  return apiRequest<StaffAssignmentUpdateResult>(`${base(organizationId)}/staff-assignments/${assignmentId}`, { method: "PATCH", body: changes });
+}
+
+export async function changeStaffAssignmentWithMessage(
+  organizationId: string,
+  assignmentId: string,
+  changes: { role_id?: string; branch_id?: string | null },
+): Promise<{ assignment: StaffAssignmentUpdateResult; message?: string }> {
+  const { data, message } = await apiRequestWithStatus<StaffAssignmentUpdateResult>(`${base(organizationId)}/staff-assignments/${assignmentId}`, {
+    method: "PATCH",
+    body: changes,
+  });
+  return { assignment: data, message };
 }
 
 /** `409 last_owner_assignment` when it's the only active Owner. */
 export function setStaffActive(organizationId: string, assignmentId: string, isActive: boolean): Promise<StaffAssignment> {
   return apiRequest<StaffAssignment>(`${base(organizationId)}/staff-assignments/${assignmentId}/status`, { method: "PATCH", body: { is_active: isActive } });
+}
+
+export function getStaffOverrides(organizationId: string, assignmentId: string, signal?: AbortSignal): Promise<StaffOverrides> {
+  return apiRequest<StaffOverrides>(`${base(organizationId)}/staff-assignments/${assignmentId}/overrides`, { signal });
+}
+
+export function replaceStaffOverrides(organizationId: string, assignmentId: string, overrides: StaffOverrideInput[]): Promise<StaffOverrides> {
+  return apiRequest<StaffOverrides>(`${base(organizationId)}/staff-assignments/${assignmentId}/overrides`, {
+    method: "PUT",
+    body: { overrides },
+  });
 }

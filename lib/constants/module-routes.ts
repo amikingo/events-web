@@ -13,6 +13,8 @@ export const MODULE_ROUTES: Record<string, string> = {
   "/branches": "/admin/branches",
   "/access/roles": "/admin/access/roles",
   "/access/assignments": "/admin/access/assignments",
+  "/access/role-templates": "/admin/access/role-templates",
+  "/access/modules": "/admin/access/modules",
 };
 
 /** The frontend path for a backend `route_name`, or null when no screen is built for it. */

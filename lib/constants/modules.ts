@@ -44,6 +44,8 @@ export const ROUTE_MODULE_MAP: Record<string, ModuleCode> = {
   "/admin/branches": MODULE_CODES.BRANCHES,
   "/admin/access/roles": MODULE_CODES.ROLES,
   "/admin/access/assignments": MODULE_CODES.USER_ROLES,
+  "/admin/access/role-templates": MODULE_CODES.ROLE_TEMPLATES,
+  "/admin/access/modules": MODULE_CODES.MODULES,
 };
 
 /** The module that guards `pathname`, or null when no backend module owns it. */
@@ -54,8 +56,5 @@ export function moduleForPath(pathname: string): ModuleCode | null {
   return match ? ROUTE_MODULE_MAP[match]! : null;
 }
 
-/**
- * Modules the sidebar never shows even when `/me` lists them. Empty today: modules without a built screen are left
- * out by `module-routes.ts` (no route), which is the honest reason they are missing.
- */
-export const SIDEBAR_HIDDEN_MODULES: ReadonlySet<string> = new Set<string>([]);
+/** Modules the sidebar hides because their screens live elsewhere (overrides live on Staff Assignments). */
+export const SIDEBAR_HIDDEN_MODULES: ReadonlySet<string> = new Set<string>([MODULE_CODES.USER_MODULE_ACCESSES]);

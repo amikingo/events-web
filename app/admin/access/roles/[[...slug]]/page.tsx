@@ -21,11 +21,12 @@ import { TextLink } from "@/components/ui/text-link";
 import { toast } from "@/components/ui/toaster";
 import { ApiError } from "@/lib/api-client";
 import { describeApiError } from "@/lib/api/errors";
+import { listOrganizationRoleTemplates } from "@/lib/api/role-templates";
 import { changeRoleStatus, createRole, listRoles, updateRole } from "@/lib/api/roles";
 import type { Role, RoleCreateInput, RoleGrant, RoleUpdateInput } from "@/lib/api/roles";
 import { MODULE_CODES } from "@/lib/constants/modules";
 import { useOrganization } from "@/lib/organization-context";
-import { roleQk, staffQk } from "@/lib/query-keys";
+import { roleQk, roleTemplateQk, staffQk } from "@/lib/query-keys";
 import { RoleForm } from "./role-form";
 
 const BASE = "/admin/access/roles";
@@ -104,6 +105,12 @@ function RolesView({ organizationId }: { organizationId: string }) {
   const [statusError, setStatusError] = useState<{ message: string; linkToStaff?: boolean } | null>(null);
 
   const query = useQuery({ queryKey: roleQk.list(organizationId), queryFn: ({ signal }) => listRoles(organizationId, signal) });
+  const canCreate = can("create", MODULE);
+  const templates = useQuery({
+    queryKey: roleTemplateQk.organizationOptions(organizationId),
+    queryFn: ({ signal }) => listOrganizationRoleTemplates(organizationId, signal),
+    enabled: location.mode === "create" && canCreate,
+  });
   const roles = query.data ?? [];
   const ownerRole = roles.find((r) => r.code === "OWNER");
 
@@ -192,6 +199,7 @@ function RolesView({ organizationId }: { organizationId: string }) {
         role={existing}
         ownerRole={ownerRole}
         hasBranches={hasBranches}
+        templates={!existing ? templates.data : undefined}
         onCancel={() => go(existing ? `${BASE}/${existing.id}` : BASE)}
         onCreate={async (input) => {
           const created = await create.mutateAsync(input);

@@ -181,6 +181,7 @@ interface ListMeta {
 
 interface Envelope<T> {
   data: T;
+  message?: string;
   meta?: ListMeta;
   /** The HTTP status: 201 vs 200 means something for registrations (a place was taken, or it already was). */
   status: number;
@@ -213,11 +214,13 @@ async function send<T>(path: string, { method = "GET", body, headers: extra, sig
 
   if (res.status === 204) return { data: undefined as T, status: 204 };
   const payload = (await res.json().catch(() => null)) as
-    | { success: true; data: T; meta?: ListMeta }
+    | { success: true; data: T; message?: string; meta?: ListMeta }
     | { success: false; error: { code: string; message: string; details?: unknown } }
     | null;
 
-  if (res.ok && payload && payload.success) return { data: payload.data, meta: payload.meta, status: res.status };
+  if (res.ok && payload && payload.success) {
+    return { data: payload.data, message: payload.message, meta: payload.meta, status: res.status };
+  }
   const error = payload && !payload.success ? payload.error : null;
   throw new ApiError(res.status, error?.code ?? "unknown_error", error?.message ?? res.statusText, error?.details);
 }
@@ -334,10 +337,10 @@ async function call<T>(path: string, options: RequestOptions): Promise<Envelope<
   }
 }
 
-/** Like `apiRequest`, with the HTTP status: for calls where 201 and 200 mean different things (registrations). */
-export async function apiRequestWithStatus<T>(path: string, options: RequestOptions = {}): Promise<{ data: T; status: number }> {
-  const { data, status } = await call<T>(path, options);
-  return { data, status };
+/** Like `apiRequest`, with HTTP status and message envelope: for registrations and warning messages. */
+export async function apiRequestWithStatus<T>(path: string, options: RequestOptions = {}): Promise<{ data: T; status: number; message?: string }> {
+  const { data, status, message } = await call<T>(path, options);
+  return { data, status, message };
 }
 
 /** One record, an action, or a short unpaged list. */

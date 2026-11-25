@@ -28,7 +28,11 @@ export function describeApiError(error: unknown, noun = "item"): string {
     case "grant_exceeds_own_access":
       return grantExceedsOwnAccessMessage(error.details);
     case "role_locked":
-      return "The Owner role can't be changed.";
+      return noun === "template" ? "The Owner template can't be changed." : "The Owner role can't be changed.";
+    case "owner_not_overridable":
+      return "Owners always have full access.";
+    case "own_assignment":
+      return "You can't change your own access. Ask another Owner.";
     case "role_in_use": {
       const count = (error.details as { active_assignments?: number } | undefined)?.active_assignments;
       return count !== undefined
@@ -167,7 +171,7 @@ export function grantExceedsOwnAccessMessage(details: unknown, moduleNames?: Rec
 function conflictMessage(details: unknown, noun: string): string {
   const field = (details as { field?: string } | undefined)?.field;
   if (field === "user_id") return "This person is already staff of another organization.";
-  if (noun === "role" && field === "code") return "Another role already uses this code.";
-  if (noun === "role" && field === "name") return "Another role already has this name.";
+  if ((noun === "role" || noun === "template") && field === "code") return `Another ${noun} already uses this code.`;
+  if ((noun === "role" || noun === "template") && field === "name") return `Another ${noun} already has this name.`;
   return `Another ${noun} already uses that code or web address. Use a different one.`;
 }

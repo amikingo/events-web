@@ -1,45 +1,29 @@
 "use client";
 
 import { useState } from "react";
-import { AlertCircleIcon } from "@/components/ui/icons";
 import { Breadcrumb } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ErrorBanner } from "@/components/ui/error-banner";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toaster";
 import { ApiError } from "@/lib/api-client";
 import { describeApiError, grantExceedsOwnAccessMessage } from "@/lib/api/errors";
+import type { RoleTemplate } from "@/lib/api/role-templates";
 import type { Role, RoleCreateInput, RoleGrantInput, RoleUpdateInput } from "@/lib/api/roles";
-
-type GrantAction = "view" | "create" | "update" | "export";
-type ModuleRowConfig = {
-  code: string;
-  defaultName: string;
-  actions: readonly GrantAction[];
-  hint?: string;
-};
-
-const ROLE_MODULES: readonly ModuleRowConfig[] = [
-  { code: "ORGANIZATIONS", defaultName: "Organizations", actions: ["view", "update"] },
-  { code: "BRANCHES", defaultName: "Branches", actions: ["view", "create", "update"] },
-  { code: "ROLES", defaultName: "Roles", actions: ["view", "create", "update"] },
-  { code: "USER_ROLES", defaultName: "Staff assignments", actions: ["view", "create", "update"] },
-  { code: "EVENTS", defaultName: "Events", actions: ["view", "create", "update"] },
-  { code: "CUSTOMERS", defaultName: "Clients", actions: ["view", "create", "update"] },
-  {
-    code: "REGISTRATIONS",
-    defaultName: "Guests",
-    actions: ["view", "create", "update", "export"],
-    hint: "Export lets them download the guest list with every guest's mobile.",
-  },
-];
-
-type GrantState = Record<string, { view: boolean; create: boolean; update: boolean; export: boolean }>;
+import {
+  GRANT_MODULES,
+  GrantGrid,
+  grantsEqual,
+  initialGrantState,
+  toggleGrantFlag,
+  toGrantPayload,
+} from "@/app/admin/access/_components/grant-grid";
+import type { GrantAction, GrantState } from "@/app/admin/access/_components/grant-grid";
 
 interface Values {
   code: string;
@@ -57,35 +41,13 @@ type FieldErrors = {
 
 const CODE_PATTERN = /^[A-Za-z0-9_]+$/;
 
-function initialGrants(role?: Role): GrantState {
-  const byCode = new Map(role?.grants.map((g) => [g.module_code, g]) ?? []);
-  const state: GrantState = {};
-  for (const mod of ROLE_MODULES) {
-    const existing = byCode.get(mod.code);
-    const hasCreate = mod.actions.includes("create") && Boolean(existing?.create);
-    const hasUpdate = mod.actions.includes("update") && Boolean(existing?.update);
-    const hasExport = mod.actions.includes("export") && Boolean(existing?.export);
-    const hasView = Boolean(existing?.view) || hasCreate || hasUpdate || hasExport;
-    state[mod.code] = { view: hasView, create: hasCreate, update: hasUpdate, export: hasExport };
-  }
-  return state;
-}
-
 function startValues(role?: Role): Values {
   return {
     code: role?.code ?? "",
     name: role?.name ?? "",
     description: role?.description ?? "",
-    grants: initialGrants(role),
+    grants: initialGrantState(role?.grants),
   };
-}
-
-function grantsEqual(a: GrantState, b: GrantState, visibleCodes: string[]): boolean {
-  return visibleCodes.every((code) => {
-    const left = a[code];
-    const right = b[code];
-    return left?.view === right?.view && left?.create === right?.create && left?.update === right?.update && left?.export === right?.export;
-  });
 }
 
 function validate(v: Values, editing: boolean): FieldErrors {
@@ -104,55 +66,30 @@ function validate(v: Values, editing: boolean): FieldErrors {
   return errors;
 }
 
-/**
- * Every module, hidden rows included: the API replaces the role's whole grant set, so a row hidden here (Branches,
- * when the organization has no branches) must send back what the role already holds, or saving would remove it.
- * Hidden rows can't be changed in the form, so their state is still the role's stored grant (none for a new role).
- */
-function toGrantPayload(grants: GrantState): RoleGrantInput[] {
-  const result: RoleGrantInput[] = [];
-  for (const mod of ROLE_MODULES) {
-    const g = grants[mod.code] ?? { view: false, create: false, update: false, export: false };
-    const view = Boolean(g.view);
-    const create = mod.actions.includes("create") ? Boolean(g.create) : false;
-    const update = mod.actions.includes("update") ? Boolean(g.update) : false;
-    const supportsExport = mod.actions.includes("export");
-    const canExport = supportsExport ? Boolean(g.export) : false;
-    if (view || create || update || canExport) {
-      result.push({
-        module_code: mod.code,
-        view,
-        create,
-        update,
-        ...(supportsExport ? { export: canExport } : {}),
-      });
-    }
-  }
-  return result;
-}
-
 interface RoleFormProps {
   role?: Role;
   ownerRole?: Role;
   hasBranches: boolean;
+  templates?: RoleTemplate[];
   onCreate: (input: RoleCreateInput) => Promise<void>;
   onUpdate: (changes: RoleUpdateInput) => Promise<void>;
   onCancel: () => void;
 }
 
-export function RoleForm({ role, ownerRole, hasBranches, onCreate, onUpdate, onCancel }: RoleFormProps) {
+export function RoleForm({ role, ownerRole, hasBranches, templates, onCreate, onUpdate, onCancel }: RoleFormProps) {
   const editing = Boolean(role);
-  const visibleModules = ROLE_MODULES.filter((m) => hasBranches || m.code !== "BRANCHES");
+  const visibleModules = GRANT_MODULES.filter((m) => hasBranches || m.code !== "BRANCHES");
   const visibleCodes = visibleModules.map((m) => m.code);
 
   const moduleNames: Record<string, string> = {};
-  for (const mod of ROLE_MODULES) {
+  for (const mod of GRANT_MODULES) {
     const ownerGrant = ownerRole?.grants.find((g) => g.module_code === mod.code);
     moduleNames[mod.code] = ownerGrant?.module_name ?? mod.defaultName;
   }
 
   const [start] = useState(() => startValues(role));
   const [values, setValues] = useState<Values>(start);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [errors, setErrors] = useState<FieldErrors>({ grants: {} });
   const [failure, setFailure] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -162,26 +99,30 @@ export function RoleForm({ role, ownerRole, hasBranches, onCreate, onUpdate, onC
   const grantsDirty = !grantsEqual(values.grants, start.grants, visibleCodes);
   const dirty = textDirty || grantsDirty;
 
+  function applyTemplate(templateId: string) {
+    setSelectedTemplateId(templateId);
+    const tpl = templates?.find((t) => t.id === templateId);
+    if (!tpl) return;
+    setValues((prev) => ({
+      ...prev,
+      name: tpl.name,
+      description: tpl.description ?? "",
+      grants: initialGrantState(tpl.grants),
+    }));
+    setErrors({ grants: {} });
+    setFailure(null);
+  }
+
   function setField<K extends "code" | "name" | "description">(key: K, value: string) {
     setValues((prev) => ({ ...prev, [key]: value }));
     if (errors[key]) setErrors((prev) => ({ ...prev, [key]: undefined }));
   }
 
   function toggleGrant(moduleCode: string, action: GrantAction, checked: boolean) {
-    setValues((prev) => {
-      const current = prev.grants[moduleCode] ?? { view: false, create: false, update: false, export: false };
-      let next = { ...current };
-      if (action === "view") {
-        next = checked ? { ...current, view: true } : { view: false, create: false, update: false, export: false };
-      } else if (action === "create") {
-        next = checked ? { ...current, view: true, create: true } : { ...current, create: false };
-      } else if (action === "update") {
-        next = checked ? { ...current, view: true, update: true } : { ...current, update: false };
-      } else if (action === "export") {
-        next = checked ? { ...current, view: true, export: true } : { ...current, export: false };
-      }
-      return { ...prev, grants: { ...prev.grants, [moduleCode]: next } };
-    });
+    setValues((prev) => ({
+      ...prev,
+      grants: toggleGrantFlag(prev.grants, moduleCode, action, checked),
+    }));
     if (errors.grants[moduleCode]) {
       setErrors((prev) => {
         const nextGrants = { ...prev.grants };
@@ -366,137 +307,33 @@ export function RoleForm({ role, ownerRole, hasBranches, onCreate, onUpdate, onC
           </div>
         </Card>
 
-        <Card>
-          <CardHeader
-            title="Access"
-            subtitle="Ticking Create, Update or Export also ticks View. Unticking View clears the row."
-          />
-          <div className="overflow-hidden rounded-sm border border-border">
-            <div className="hidden grid-cols-[1fr_76px_76px_76px_76px] items-center border-b border-border bg-surface-2 px-4 py-2.5 sm:grid">
-              <span className="type-label text-text-soft">Module</span>
-              <span className="type-label text-center text-text-soft">View</span>
-              <span className="type-label text-center text-text-soft">Create</span>
-              <span className="type-label text-center text-text-soft">Update</span>
-              <span className="type-label text-center text-text-soft">Export</span>
+        {!editing && templates && templates.length > 0 && (
+          <Card>
+            <CardHeader
+              title="Start from a template"
+              subtitle="Optional. Fills the name, description and access below. You can still change anything."
+            />
+            <div className="max-w-md">
+              <Field label="Template" htmlFor="rl-template">
+                <Select
+                  id="rl-template"
+                  placeholder="Choose a template"
+                  options={templates.map((t) => ({ value: t.id, label: t.name }))}
+                  value={selectedTemplateId}
+                  onValueChange={applyTemplate}
+                />
+              </Field>
             </div>
-            <div className="divide-y divide-border">
-              {visibleModules.map((mod) => {
-                const label = moduleNames[mod.code] ?? mod.defaultName;
-                const row = values.grants[mod.code] ?? { view: false, create: false, update: false, export: false };
-                const rowError = errors.grants[mod.code];
-                const canCreate = mod.actions.includes("create");
-                const canUpdate = mod.actions.includes("update");
-                const canExport = mod.actions.includes("export");
+          </Card>
+        )}
 
-                return (
-                  <div
-                    key={mod.code}
-                    className="flex flex-col gap-3 px-4 py-3 sm:grid sm:grid-cols-[1fr_76px_76px_76px_76px] sm:items-center sm:gap-0"
-                  >
-                    <div className="flex flex-col gap-1 pr-2">
-                      <span className="type-body font-medium text-text">{label}</span>
-                      {mod.hint && <span className="text-[11.5px] text-text-faint">{mod.hint}</span>}
-                      {rowError && (
-                        <p role="alert" className="m-0 flex items-center gap-1.5 text-[11.5px] text-danger-text">
-                          <AlertCircleIcon className="size-3 flex-none" />
-                          {rowError}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-5 sm:contents">
-                      <div className="flex items-center sm:justify-center">
-                        <div className="sm:hidden">
-                          <Checkbox
-                            checked={row.view}
-                            label="View"
-                            onCheckedChange={(checked) => toggleGrant(mod.code, "view", checked)}
-                          />
-                        </div>
-                        <div className="hidden sm:flex">
-                          <Checkbox
-                            checked={row.view}
-                            aria-label={`${label} View`}
-                            onCheckedChange={(checked) => toggleGrant(mod.code, "view", checked)}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="flex items-center sm:justify-center">
-                        {canCreate ? (
-                          <>
-                            <div className="sm:hidden">
-                              <Checkbox
-                                checked={row.create}
-                                label="Create"
-                                onCheckedChange={(checked) => toggleGrant(mod.code, "create", checked)}
-                              />
-                            </div>
-                            <div className="hidden sm:flex">
-                              <Checkbox
-                                checked={row.create}
-                                aria-label={`${label} Create`}
-                                onCheckedChange={(checked) => toggleGrant(mod.code, "create", checked)}
-                              />
-                            </div>
-                          </>
-                        ) : (
-                          <span className="hidden type-body-sm text-text-faint sm:inline">—</span>
-                        )}
-                      </div>
-
-                      <div className="flex items-center sm:justify-center">
-                        {canUpdate ? (
-                          <>
-                            <div className="sm:hidden">
-                              <Checkbox
-                                checked={row.update}
-                                label="Update"
-                                onCheckedChange={(checked) => toggleGrant(mod.code, "update", checked)}
-                              />
-                            </div>
-                            <div className="hidden sm:flex">
-                              <Checkbox
-                                checked={row.update}
-                                aria-label={`${label} Update`}
-                                onCheckedChange={(checked) => toggleGrant(mod.code, "update", checked)}
-                              />
-                            </div>
-                          </>
-                        ) : (
-                          <span className="hidden type-body-sm text-text-faint sm:inline">—</span>
-                        )}
-                      </div>
-
-                      <div className="flex items-center sm:justify-center">
-                        {canExport ? (
-                          <>
-                            <div className="sm:hidden">
-                              <Checkbox
-                                checked={row.export}
-                                label="Export"
-                                onCheckedChange={(checked) => toggleGrant(mod.code, "export", checked)}
-                              />
-                            </div>
-                            <div className="hidden sm:flex">
-                              <Checkbox
-                                checked={row.export}
-                                aria-label={`${label} Export`}
-                                onCheckedChange={(checked) => toggleGrant(mod.code, "export", checked)}
-                              />
-                            </div>
-                          </>
-                        ) : (
-                          <span className="hidden type-body-sm text-text-faint sm:inline">—</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </Card>
+        <GrantGrid
+          visibleModules={visibleModules}
+          moduleNames={moduleNames}
+          grants={values.grants}
+          errors={errors.grants}
+          onToggle={toggleGrant}
+        />
       </form>
 
       <ConfirmDialog
