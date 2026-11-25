@@ -5,8 +5,9 @@ import type { ReactNode } from "react";
 import { cn } from "../../lib/utils";
 
 export const SIDEBAR_MIN = 180;
-export const SIDEBAR_MAX = 320;
-export const SIDEBAR_DEFAULT = 200;
+export const SIDEBAR_MAX = 400;
+// Same as bookings_web: 274 (library default 200) so long menu names like "Event Management" fit beside their arrow.
+export const SIDEBAR_DEFAULT = 274;
 export const SIDEBAR_COLLAPSED = 68;
 /** Dragging the resizer narrower than this collapses the sidebar. */
 export const SIDEBAR_SNAP = 120;
@@ -43,7 +44,7 @@ export interface AppShellProps {
   /** The page. Goes in `.app-main` (18px / 20px padding, scrolls). */
   children: ReactNode;
   defaultCollapsed?: boolean;
-  /** localStorage key that remembers the dragged sidebar width. Default `cheche-sb-w`. */
+  /** localStorage key that remembers the dragged sidebar width. Default `cheche-sb-w-v5` (bumped when the default width grew, so a width dragged earlier doesn't hide the new one). */
   storageKey?: string;
   /** On the shell's outer box. Give it a height (`h-dvh`) and the sidebar and the page scroll inside it instead of the window. */
   className?: string;
@@ -55,7 +56,7 @@ export interface AppShellProps {
  * The admin layout (Navigation > app shell): a sidebar card and a main card side by side with a 4px gap, a top bar
  * above the page. Below 760px the sidebar becomes a slide-over drawer with a backdrop; the top bar shows the menu toggle.
  */
-export function AppShell({ sidebar, topbar, children, defaultCollapsed = false, storageKey = "cheche-sb-w", className, mainClassName }: AppShellProps) {
+export function AppShell({ sidebar, topbar, children, defaultCollapsed = false, storageKey = "cheche-sb-w-v5", className, mainClassName }: AppShellProps) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [width, setWidthState] = useState(SIDEBAR_DEFAULT);
   const [mobileOpen, setMobileOpen] = useState(false);

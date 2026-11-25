@@ -1,8 +1,10 @@
 "use client";
 
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePathname } from "next/navigation";
-import { Suspense, useEffect, useSyncExternalStore } from "react";
-import { staffSession } from "@/app/auth/staff/staff-store";
+import { Suspense, useState } from "react";
+import { NoOrganization, useOrganizationId } from "@/app/admin/_components/organization-scope";
+import { Can, useModuleAccess } from "@/components/ability-provider";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -14,14 +16,16 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Table } from "@/components/ui/table";
 import type { ColumnDef } from "@/components/ui/table";
 import { toast } from "@/components/ui/toaster";
-import type { Branch } from "@/lib/api/branches";
+import { createBranch, getBranch, listBranches, setBranchActive, updateBranch } from "@/lib/api/branches";
+import type { Branch, BranchInput } from "@/lib/api/branches";
 import { describeApiError } from "@/lib/api/errors";
+import { MODULE_CODES } from "@/lib/constants/modules";
 import { formatDate } from "@/lib/format";
-import { useStorageStore } from "@/lib/marketplace/storage-store";
-import { branchesService } from "@/lib/services/branches-service";
-import { usePermissions } from "@/lib/services/permissions-service";
+import { branchQk, organizationQk } from "@/lib/query-keys";
+import { BranchForm } from "./branch-form";
 
 const BASE = "/admin/branches";
+const MODULE = MODULE_CODES.BRANCHES;
 
 const columns: ColumnDef<Branch>[] = [
   {
@@ -46,90 +50,124 @@ const columns: ColumnDef<Branch>[] = [
   { key: "created", header: "Created", sortable: true, filterValue: (r) => r.created_at, accessor: (r) => formatDate(r.created_at) },
 ];
 
-const sections = [
-  {
-    id: "details",
-    title: "Branch details",
-    hint: "The place or office these events run from.",
-    fields: [
-      { name: "name", label: "Name", required: true, requiredMessage: "Enter the branch name.", full: true, placeholder: "Addis Office" },
-      {
-        name: "code",
-        label: "Code",
-        required: true,
-        requiredMessage: "Enter a short code.",
-        hint: "Letters, numbers and underscores. Saved in capitals.",
-        placeholder: "ADDIS",
-        validate: (value: string) => (/^[A-Za-z0-9_]+$/.test(value.trim()) ? undefined : "Use letters, numbers and underscores only."),
-      },
-      { name: "description", label: "Description", type: "textarea" as const, full: true, hint: "Optional." },
-    ],
-  },
-];
 
 /** Change the address without rebuilding the page (so a record page loads once). */
 function go(path: string) {
   window.history.pushState(null, "", path);
 }
 
-function useBranches() {
-  return useSyncExternalStore(branchesService.subscribe, branchesService.getSnapshot, branchesService.getSnapshot);
-}
-
-function BranchesView() {
+function BranchesView({ organizationId }: { organizationId: string }) {
   const pathname = usePathname();
-  const { branches, status, error } = useBranches();
-  const user = useStorageStore(staffSession);
-  const { can } = usePermissions();
-  const organizationId = user?.organizationId || null;
+  const queryClient = useQueryClient();
+  const { can } = useModuleAccess();
   const location = parseRecordPath(BASE, pathname);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const params = { page, pageSize };
 
-  useEffect(() => {
-    if (organizationId) void branchesService.load(organizationId);
-  }, [organizationId]);
+  const list = useQuery({
+    queryKey: branchQk.list(organizationId, params),
+    queryFn: ({ signal }) => listBranches(organizationId, params, signal),
+    placeholderData: keepPreviousData,
+  });
 
-  // Branches belong to an organization. Platform roles are not tied to one, so there is nothing to list yet.
-  if (user !== undefined && !organizationId) {
-    return (
-      <EmptyState
-        size="lg"
-        icon={<BuildingIcon />}
-        title="Pick an organization first"
-        description="Your role isn't tied to one. Open an organization to see its branches."
-      />
-    );
-  }
+  // A record opened by link may not be on the current page: load it on its own.
+  const openId = location.mode === "page" || location.mode === "edit" ? String(location.id) : null;
+  const onPage = list.data?.data.some((b) => b.id === openId) ?? false;
+  const detail = useQuery({
+    queryKey: branchQk.detail(organizationId, openId ?? ""),
+    queryFn: ({ signal }) => getBranch(organizationId, openId!, signal),
+    enabled: Boolean(openId) && list.isSuccess && !onPage,
+  });
+  const rows = list.data?.data ?? [];
+  const branches = detail.data && !onPage ? [...rows, detail.data] : rows;
 
-  if (status === "error") {
+  /** After any change: every branch query of this organization is refetched. */
+  const saved = () => void queryClient.invalidateQueries({ queryKey: branchQk.all(organizationId) });
+
+  const create = useMutation({
+    mutationFn: (input: BranchInput) => createBranch(organizationId, input),
+    onSuccess: () => {
+      saved();
+      // Adding a branch turns branches on for the organization (`has_branches`).
+      void queryClient.invalidateQueries({ queryKey: organizationQk.all() });
+    },
+  });
+  const update = useMutation({
+    mutationFn: ({ id, changes }: { id: string; changes: Partial<BranchInput> }) => updateBranch(organizationId, id, changes),
+    onSuccess: saved,
+  });
+  const changeStatus = useMutation({
+    mutationFn: ({ branch, isActive }: { branch: Branch; isActive: boolean }) => setBranchActive(organizationId, branch.id, isActive),
+    onSuccess: (branch) => {
+      saved();
+      toast.success(branch.is_active ? "Branch switched on" : "Branch switched off");
+    },
+    onError: (error) => toast.error("Couldn't change the branch", { body: describeApiError(error, "branch") }),
+  });
+
+  if (list.isError) {
     return (
       <EmptyState
         size="lg"
         tone="danger"
         title="We couldn't load the branches"
-        description={describeApiError(error, "branch")}
-        actions={<Button onClick={() => organizationId && void branchesService.load(organizationId, { force: true })}>Try again</Button>}
+        description={describeApiError(list.error, "branch")}
+        actions={<Button onClick={() => void list.refetch()}>Try again</Button>}
       />
     );
   }
 
-  const canCreate = can("BRANCHES", "create");
-  const canUpdate = can("BRANCHES", "update");
-  const loading = status === "idle" || status === "loading";
+  const canUpdate = can("update", MODULE);
+  const newBranch = (label: string, icon = false) => (
+    <Can I="create" a={MODULE}>
+      <Button onClick={() => go(`${BASE}/new`)}>
+        {icon && <PlusIcon className="size-4" />}
+        {label}
+      </Button>
+    </Can>
+  );
 
-  async function changeStatus(branch: Branch, isActive: boolean) {
-    try {
-      await branchesService.setActive(branch.organization_id, branch.id, isActive);
-      toast.success(isActive ? "Branch switched on" : "Branch switched off");
-    } catch (e) {
-      toast.error("Couldn't change the branch", { body: describeApiError(e, "branch") });
+  // Create and edit are their own full pages.
+  if (location.mode === "create" || location.mode === "edit") {
+    const existing = location.mode === "edit" ? branches.find((r) => r.id === String(location.id)) : undefined;
+    if (location.mode === "edit" && !existing) {
+      if (list.isPending || detail.isPending) return null;
+      return <EmptyState size="lg" title="This branch doesn't exist" description="It may have been removed. Go back to the list." />;
     }
+    return (
+      <BranchForm
+        key={existing?.id ?? "new"}
+        branch={existing}
+        onCancel={() => go(existing ? `${BASE}/${existing.id}` : BASE)}
+        onSubmit={async (input) => {
+          try {
+            if (existing) {
+              // Send only what changed.
+              const changes = Object.fromEntries(Object.entries(input).filter(([key, value]) => value !== existing[key as keyof Branch])) as Partial<BranchInput>;
+              const saved = Object.keys(changes).length ? await update.mutateAsync({ id: existing.id, changes }) : existing;
+              toast.success("Changes saved");
+              go(`${BASE}/${saved.id}`);
+            } else {
+              const created = await create.mutateAsync(input);
+              toast.success("Branch created");
+              go(`${BASE}/${created.id}`);
+            }
+          } catch (e) {
+            // The form stays open and shows this message (a code-based one: API messages are technical).
+            throw new Error(describeApiError(e, "branch"));
+          }
+        }}
+      />
+    );
   }
 
   return (
     <RecordWorkspace
       fit
       inlineToasts={false}
-      className="h-[calc(100vh-270px)] min-h-[520px]"
+      // A short list sizes to its rows; the record page, panel and forms keep a tall stage.
+      className={location.mode === "list" ? undefined : "h-[calc(100vh-270px)] min-h-[520px]"}
       records={branches}
       getId={(b) => b.id}
       noun="branch"
@@ -140,10 +178,22 @@ function BranchesView() {
       list={({ onRowClick, activeRowId, highlightIds, onVisibleRowsChange }) => (
         <Table
           columns={columns}
-          data={branches}
+          data={rows}
           getRowId={(r) => r.id}
           title="Branches"
-          loading={loading}
+          loading={list.isPending}
+          // Pages come from the server. The API can't search branches yet, so the table doesn't offer a search
+          // that would only look at the page on screen.
+          page={page}
+          onPageChange={setPage}
+          rowsPerPage={pageSize}
+          onRowsPerPageChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+          totalRows={list.data?.totalItems ?? 0}
+          searchable={false}
+          filters={false}
           onRowClick={onRowClick}
           activeRowId={activeRowId}
           highlightIds={highlightIds}
@@ -153,17 +203,10 @@ function BranchesView() {
               icon={<BuildingIcon />}
               title="No branches yet"
               description="Add a branch for each office or venue you run events from."
-              actions={canCreate ? <Button onClick={() => go(`${BASE}/new`)}>New branch</Button> : undefined}
+              actions={newBranch("New branch")}
             />
           }
-          toolbarActions={
-            canCreate ? (
-              <Button onClick={() => go(`${BASE}/new`)}>
-                <PlusIcon className="size-4" />
-                New branch
-              </Button>
-            ) : undefined
-          }
+          toolbarActions={newBranch("New branch", true)}
           className="rounded-none border-none shadow-none"
         />
       )}
@@ -192,7 +235,7 @@ function BranchesView() {
                         title: `Switch off ${b.name}?`,
                         description: "People can't use this branch until you switch it back on.",
                         confirmLabel: "Switch off branch",
-                        onConfirm: () => void changeStatus(b, false),
+                        onConfirm: () => changeStatus.mutate({ branch: b, isActive: false }),
                       }),
                   },
                 ]
@@ -204,7 +247,7 @@ function BranchesView() {
                       title: `Switch on ${b.name}?`,
                       description: "People will be able to use this branch again.",
                       confirmLabel: "Switch on branch",
-                      onConfirm: () => void changeStatus(b, true),
+                      onConfirm: () => changeStatus.mutate({ branch: b, isActive: true }),
                     }),
                 },
               ],
@@ -257,34 +300,30 @@ function BranchesView() {
         ),
       }}
       form={{
-        sections,
-        toValues: (b) => ({ name: b.name, code: b.code, description: b.description ?? "" }),
-        onSave: async (values, existing) => {
-          const input = { name: values.name!.trim(), code: values.code!.trim(), description: values.description?.trim() || null };
-          try {
-            if (!existing) return await branchesService.create(organizationId!, input);
-            // Send only what changed, so an edit never overwrites a field someone else just changed.
-            const changes: Partial<typeof input> = {};
-            if (input.name !== existing.name) changes.name = input.name;
-            if (input.code.toUpperCase() !== existing.code) changes.code = input.code;
-            if (input.description !== existing.description) changes.description = input.description;
-            return Object.keys(changes).length ? await branchesService.update(organizationId!, existing.id, changes) : existing;
-          } catch (e) {
-            // The form stays open and shows this message.
-            throw new Error(describeApiError(e, "branch"));
-          }
+        // Not used: create and edit are their own full pages (see the form above). The workspace still needs a form prop.
+        sections: [],
+        toValues: () => ({}),
+        onSave: (_values, existing) => {
+          if (existing) return existing;
+          throw new Error("Use the form page.");
         },
-        createdMessage: "Branch created",
-        savedMessage: "Changes saved",
       }}
     />
   );
 }
 
+/** Branches are an organization's own: a platform role picks one in the switcher first. */
+function BranchesScreen() {
+  const organizationId = useOrganizationId();
+  if (organizationId === undefined) return null;
+  if (organizationId === null) return <NoOrganization what="Branches" />;
+  return <BranchesView organizationId={organizationId} />;
+}
+
 export default function BranchesPage() {
   return (
     <Suspense>
-      <BranchesView />
+      <BranchesScreen />
     </Suspense>
   );
 }

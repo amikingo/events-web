@@ -20,6 +20,7 @@ export interface ShowcaseEvent {
   slug: string;
   title: string;
   startsAt: string;
+  timezone?: string;
   where: string;
 }
 
@@ -170,7 +171,7 @@ export function OrganizerShowcase({ organizers, events }: { organizers: Showcase
               <span className={cn("w-5 type-label tabular-nums transition-colors", on ? "text-accent-text" : "text-text-faint")}>{String(i + 1).padStart(2, "0")}</span>
               <span className="min-w-0 flex-1">
                 <span className={cn("block truncate text-[1.0625rem] font-semibold leading-tight tracking-tight transition-colors", on ? "text-text" : "text-text-faint group-hover:text-text-soft")}>{x.name}</span>
-                <span className="block type-body-sm text-text-faint">{formatNumber(x.followers)} followers</span>
+                <span className="block type-body-sm text-text-faint">{x.followers > 0 ? `${formatNumber(x.followers)} followers` : `${x.upcomingCount} upcoming`}</span>
               </span>
               <ChevRightIcon className={cn("size-3.5 flex-none text-accent transition-all", on ? "translate-x-0 opacity-100" : "-translate-x-2 opacity-0")} />
               {on && (
@@ -209,19 +210,24 @@ export function OrganizerShowcase({ organizers, events }: { organizers: Showcase
               )}
             </div>
 
-            <p className="m-0 mt-3 line-clamp-2 max-w-[600px] type-body text-text-soft">{o.bio}</p>
+            {o.bio && <p className="m-0 mt-3 line-clamp-2 max-w-[600px] type-body text-text-soft">{o.bio}</p>}
 
-            <dl className="m-0 mt-4 grid grid-cols-3 divide-x divide-border rounded-md border border-border bg-surface-2/50">
-              <div className="px-3 py-2 sm:px-4">
-                <dt className="type-label uppercase tracking-wide text-text-faint">Followers</dt>
-                <dd className="m-0 mt-0.5 text-[1.125rem] font-semibold leading-tight tabular-nums text-text">{formatNumber(Math.round(followers))}</dd>
-              </div>
-              <div className="px-3 py-2 sm:px-4">
-                <dt className="type-label uppercase tracking-wide text-text-faint">Rating</dt>
-                <dd className="m-0 mt-0.5 inline-flex items-center gap-1 text-[1.125rem] font-semibold leading-tight tabular-nums text-text">
-                  <StarIcon className="size-4 text-warning" /> {rating.toFixed(1)}
-                </dd>
-              </div>
+            {/* The API tells us an organizer's name only: followers and ratings show once an organizer has them. */}
+            <dl className={cn("m-0 mt-4 grid divide-x divide-border rounded-md border border-border bg-surface-2/50", o.followers > 0 || o.rating > 0 ? "grid-cols-3" : "grid-cols-1")}>
+              {o.followers > 0 && (
+                <div className="px-3 py-2 sm:px-4">
+                  <dt className="type-label uppercase tracking-wide text-text-faint">Followers</dt>
+                  <dd className="m-0 mt-0.5 text-[1.125rem] font-semibold leading-tight tabular-nums text-text">{formatNumber(Math.round(followers))}</dd>
+                </div>
+              )}
+              {o.rating > 0 && (
+                <div className="px-3 py-2 sm:px-4">
+                  <dt className="type-label uppercase tracking-wide text-text-faint">Rating</dt>
+                  <dd className="m-0 mt-0.5 inline-flex items-center gap-1 text-[1.125rem] font-semibold leading-tight tabular-nums text-text">
+                    <StarIcon className="size-4 text-warning" /> {rating.toFixed(1)}
+                  </dd>
+                </div>
+              )}
               <div className="px-3 py-2 sm:px-4">
                 <dt className="type-label uppercase tracking-wide text-text-faint">Upcoming</dt>
                 <dd className="m-0 mt-0.5 text-[1.125rem] font-semibold leading-tight tabular-nums text-text">{Math.round(upcoming)}</dd>
@@ -235,7 +241,7 @@ export function OrganizerShowcase({ organizers, events }: { organizers: Showcase
             {next.length ? (
               <ul className="m-0 mt-1 flex list-none flex-col p-0">
                 {next.slice(0, 3).map((e) => {
-                  const d = dateChip(e.startsAt);
+                  const d = dateChip(e.startsAt, e.timezone);
                   return (
                     <li key={e.id}>
                       <Link href={`/events/${e.slug}`} className="group -mx-2 flex items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-surface-2">

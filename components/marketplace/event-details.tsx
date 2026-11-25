@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { formatNumber } from "../../lib/format";
-import { formatEventDate, formatEventDateLong, formatEventTime, formatEventWhen } from "../../lib/marketplace/datetime";
+import { formatEventDate, formatEventDateLong, formatEventTime, formatEventWhen, zoneNote } from "../../lib/marketplace/datetime";
 import { eventPhase } from "../../lib/marketplace/event-state";
 import { exploreHref } from "../../lib/marketplace/query";
 import type { AgendaDay, City, EventItem, Organizer, Speaker, Venue } from "../../types/marketplace";
@@ -32,7 +32,7 @@ export function EventDetailsHeader({ event, organizer, venue, city, categoryName
         ]}
       />
       <div className="relative aspect-[16/9] overflow-hidden rounded-lg sm:aspect-[21/9]">
-        <EventCover seed={event.id} pattern={event.coverPattern} category={event.categoryId} muted={ended} />
+        <EventCover seed={event.id} pattern={event.coverPattern} category={event.categoryId} src={event.coverUrl} muted={ended} />
       </div>
       <div className="mt-6 flex flex-wrap items-center gap-2">
         <Link href={exploreHref({ category: event.categoryId })} className="rounded-sm type-label text-accent-text hover:underline">
@@ -55,8 +55,11 @@ export function EventDetailsHeader({ event, organizer, venue, city, categoryName
 
       <dl className="m-0 mt-5 grid gap-4 sm:grid-cols-2">
         <Fact icon={<CalendarIcon />} label="Date and time">
-          <span className="block font-semibold text-text">{formatEventDateLong(event.startsAt)}</span>
-          <span className="block">{formatEventWhen(event.startsAt, event.endsAt).split(" · ")[1] ?? formatEventWhen(event.startsAt, event.endsAt)}</span>
+          <span className="block font-semibold text-text">{formatEventDateLong(event.startsAt, event.timezone)}</span>
+          <span className="block">
+            {formatEventWhen(event.startsAt, event.endsAt, event.timezone).split(" · ")[1] ?? formatEventWhen(event.startsAt, event.endsAt, event.timezone)}
+            {zoneNote(event.timezone) && <span className="text-text-faint"> · {zoneNote(event.timezone)}</span>}
+          </span>
         </Fact>
         <Fact icon={event.format === "online" ? <MonitorIcon /> : <MapPinIcon />} label="Location">
           <span className="block font-semibold text-text">{where}</span>
@@ -108,17 +111,17 @@ export function EventNotices({ event, now }: { event: EventItem; now: string }) 
       {event.lifecycle === "postponed" && event.originalStartsAt && phase !== "ended" && (
         <AlertCard
           tone="warning"
-          title={`Rescheduled to ${formatEventDate(event.startsAt, { weekday: true })}`}
+          title={`Rescheduled to ${formatEventDate(event.startsAt, { weekday: true, timeZone: event.timezone })}`}
           body={
             <>
-              Originally planned for {formatEventDate(event.originalStartsAt, { weekday: true })}. {event.lifecycleNote}
+              Originally planned for {formatEventDate(event.originalStartsAt, { weekday: true, timeZone: event.timezone })}. {event.lifecycleNote}
             </>
           }
         />
       )}
       {latest && event.lifecycle === "published" && phase !== "ended" && <AlertCard tone="info" title="Event details updated" time={formatEventDate(latest.at, { year: false })} body={latest.summary} />}
       {phase === "ended" && event.lifecycle !== "cancelled" && <AlertCard tone="info" title="This event has ended" body="Thanks to everyone who came. Follow the organizer to hear about the next one." />}
-      {phase === "ongoing" && event.lifecycle !== "cancelled" && <AlertCard tone="success" title="Happening now" body={`Runs until ${formatEventDate(event.endsAt, { weekday: true, year: false })}, ${formatEventTime(event.endsAt)}.`} />}
+      {phase === "ongoing" && event.lifecycle !== "cancelled" && <AlertCard tone="success" title="Happening now" body={`Runs until ${formatEventDate(event.endsAt, { weekday: true, year: false, timeZone: event.timezone })}, ${formatEventTime(event.endsAt, event.timezone)}.`} />}
     </div>
   );
 }
@@ -225,7 +228,7 @@ export function VenueMap({ venue, city }: { venue: Venue; city?: City }) {
             {venue.address}
             {city ? `, ${city.name}` : ""}
           </p>
-          <p className="m-0 mt-2 type-body-sm text-text-soft">{venue.directions}</p>
+          {venue.directions && <p className="m-0 mt-2 type-body-sm text-text-soft">{venue.directions}</p>}
         </div>
         <a href={`https://www.google.com/maps/search/?api=1&query=${query}`} target="_blank" rel="noopener noreferrer" className="flex-none rounded-sm type-body-sm font-semibold text-accent-text hover:underline">
           Open in maps
@@ -258,25 +261,34 @@ export function OrganizerContact({ organizer, upcoming }: { organizer: Organizer
       <Avatar initials={organizer.initials} size={48} />
       <div className="min-w-0 flex-1">
         <p className="m-0 type-h3 text-text">{organizer.name}</p>
-        <p className="m-0 mt-1 type-body-sm text-text-soft">{organizer.bio}</p>
+        {organizer.bio && <p className="m-0 mt-1 type-body-sm text-text-soft">{organizer.bio}</p>}
+        {/* The API tells us only the organizer's name: followers, ratings and contact details show when an organizer has them. */}
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 type-body-sm text-text-soft">
-          <span className="inline-flex items-center gap-1">
-            <UserIcon className="size-3.5" /> {formatNumber(organizer.followers)} followers
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <StarIcon className="size-3.5 text-warning" /> {organizer.rating.toFixed(1)} from past attendees
-          </span>
+          {organizer.followers > 0 && (
+            <span className="inline-flex items-center gap-1">
+              <UserIcon className="size-3.5" /> {formatNumber(organizer.followers)} followers
+            </span>
+          )}
+          {organizer.rating > 0 && (
+            <span className="inline-flex items-center gap-1">
+              <StarIcon className="size-3.5 text-warning" /> {organizer.rating.toFixed(1)} from past attendees
+            </span>
+          )}
           <span className="inline-flex items-center gap-1">
             <ClockIcon className="size-3.5" /> {upcoming === 1 ? "1 other upcoming event" : `${upcoming} other upcoming events`}
           </span>
         </div>
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
-          <a href={`mailto:${organizer.email}`} className="rounded-sm type-body-sm font-semibold text-accent-text hover:underline">
-            {organizer.email}
-          </a>
-          <a href={`tel:+251${organizer.phone.replace(/\s/g, "")}`} className="rounded-sm type-body-sm font-semibold text-accent-text hover:underline">
-            +251 {organizer.phone}
-          </a>
+          {organizer.email && (
+            <a href={`mailto:${organizer.email}`} className="rounded-sm type-body-sm font-semibold text-accent-text hover:underline">
+              {organizer.email}
+            </a>
+          )}
+          {organizer.phone && (
+            <a href={`tel:+251${organizer.phone.replace(/\s/g, "")}`} className="rounded-sm type-body-sm font-semibold text-accent-text hover:underline">
+              +251 {organizer.phone}
+            </a>
+          )}
           <Link href={exploreHref({ organizer: organizer.slug })} className="rounded-sm type-body-sm font-semibold text-accent-text hover:underline">
             All events by this organizer
           </Link>

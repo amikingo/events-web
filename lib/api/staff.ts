@@ -1,0 +1,83 @@
+/**
+ * An organization's staff: who holds which role (module USER_ROLES, menu "Staff Assignments"). A person is named by
+ * their mobile number; the API looks it up in Cheche's account system itself, so a user id from the browser is never
+ * sent or trusted. The API never creates accounts.
+ *
+ *   GET   /v1/organizations/:organizationId/staff-assignments               ?is_active&page&pageSize
+ *   GET   /v1/organizations/:organizationId/staff-lookup                    ?mobile=  who uses this number
+ *   POST  /v1/organizations/:organizationId/staff-assignments               { mobile, role_id, branch_id? }  201 given, 200 already had it
+ *   PATCH /v1/organizations/:organizationId/staff-assignments/:assignmentId { role_id?, branch_id? }  branch_id null = whole organization
+ *   PATCH /v1/organizations/:organizationId/staff-assignments/:assignmentId/status   { is_active }
+ *
+ * A changed role applies on the person's next request.
+ */
+import { apiPage, apiRequest, apiRequestWithStatus, clampPageSize } from "@/lib/api-client";
+import type { Paginated } from "@/lib/api-client";
+
+/** The name and mobile from the account system. `null` when it couldn't be read just now: show the row with a dash. */
+export type StaffProfile = { firstname: string | null; middlename: string | null; lastname: string | null; mobile: string | null } | null;
+
+export interface StaffAssignment {
+  id: string;
+  user_id: string;
+  is_active: boolean;
+  role: { id: string; code: string; name: string };
+  /** null: the role applies to the whole organization. */
+  branch: { id: string; code: string; name: string } | null;
+  profile: StaffProfile;
+}
+
+/** Who uses a mobile number, so the owner can confirm it's the right person before giving a role. */
+export interface StaffLookup {
+  user_id: string;
+  firstname: string | null;
+  middlename: string | null;
+  lastname: string | null;
+  mobile: string | null;
+}
+
+export interface StaffAssignmentInput {
+  /** `09…` or `+251…`. */
+  mobile: string;
+  role_id: string;
+  /** Only when the organization has branches. */
+  branch_id?: string;
+}
+
+export interface StaffListParams {
+  page: number;
+  pageSize: number;
+  isActive?: boolean;
+}
+
+const base = (organizationId: string) => `/v1/organizations/${organizationId}`;
+
+export function listStaffAssignments(organizationId: string, params: StaffListParams, signal?: AbortSignal): Promise<Paginated<StaffAssignment>> {
+  return apiPage<StaffAssignment>(`${base(organizationId)}/staff-assignments`, {
+    page: params.page,
+    pageSize: clampPageSize(params.pageSize),
+    query: { is_active: params.isActive === undefined ? undefined : String(params.isActive) },
+    signal,
+  });
+}
+
+/** `404 central_account_not_found` when nobody uses that number. */
+export function lookUpStaff(organizationId: string, mobile: string, signal?: AbortSignal): Promise<StaffLookup> {
+  return apiRequest<StaffLookup>(`${base(organizationId)}/staff-lookup?mobile=${encodeURIComponent(mobile)}`, { signal });
+}
+
+/** `roleGiven` is true for 201 (a new assignment, or an old one brought back) and false for 200 (they already had it). */
+export async function assignStaff(organizationId: string, input: StaffAssignmentInput): Promise<{ assignment: StaffAssignment; roleGiven: boolean }> {
+  const { data, status } = await apiRequestWithStatus<StaffAssignment>(`${base(organizationId)}/staff-assignments`, { method: "POST", body: input });
+  return { assignment: data, roleGiven: status === 201 };
+}
+
+/** `branch_id: null` makes the role organization-wide again. */
+export function changeStaffAssignment(organizationId: string, assignmentId: string, changes: { role_id?: string; branch_id?: string | null }): Promise<StaffAssignment> {
+  return apiRequest<StaffAssignment>(`${base(organizationId)}/staff-assignments/${assignmentId}`, { method: "PATCH", body: changes });
+}
+
+/** `409 last_owner_assignment` when it's the only active Owner. */
+export function setStaffActive(organizationId: string, assignmentId: string, isActive: boolean): Promise<StaffAssignment> {
+  return apiRequest<StaffAssignment>(`${base(organizationId)}/staff-assignments/${assignmentId}/status`, { method: "PATCH", body: { is_active: isActive } });
+}

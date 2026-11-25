@@ -3,7 +3,7 @@
 import { forwardRef } from "react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { cn } from "../../lib/utils";
-import { CheckIcon } from "./icons";
+import { CheckIcon, MinusIcon } from "./icons";
 
 export interface CheckboxProps
   extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onChange" | "value"> {
@@ -36,9 +36,7 @@ export const Checkbox = forwardRef<HTMLButtonElement, CheckboxProps>(
         {...props}
       >
         {indeterminate ? (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" className="size-3 text-white" aria-hidden="true">
-            <path d="M5 12h14" />
-          </svg>
+          <MinusIcon strokeWidth={3} className="size-3 text-white" />
         ) : checked ? (
           <CheckIcon className="size-3 text-white" />
         ) : null}

@@ -22,7 +22,7 @@ export function TwoStepStep({ go }: StepProps) {
     await new Promise((r) => setTimeout(r, 600));
     setLoading(false);
     toast.success("Code accepted");
-    router.push("/admin/dashboard");
+    router.push("/admin");
   }
 
   return (

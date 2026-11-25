@@ -1,4 +1,13 @@
-import { apiList, apiRequest } from "@/lib/api/client";
+/**
+ * Organizations (module ORGANIZATIONS).
+ *
+ *   GET   /v1/organizations                    (platform roles)
+ *   POST  /v1/organizations                    (platform roles)
+ *   GET   /v1/organizations/:organizationId
+ *   PATCH /v1/organizations/:organizationId    (defaults: country, timezone, default_currency)
+ */
+import { apiListAll, apiPage, apiRequest, clampPageSize } from "@/lib/api-client";
+import type { Paginated } from "@/lib/api-client";
 import type { Branch } from "@/lib/api/branches";
 
 /** An organization as the API returns it (its own field names). */
@@ -7,9 +16,26 @@ export interface Organization {
   name: string;
   slug: string;
   description: string | null;
+  /** false (most organizers): branch screens stay hidden; the API keeps one hidden MAIN branch. */
+  has_branches: boolean;
+  /** Defaults for new events: `ET`, `Africa/Addis_Ababa`, `ETB`. Changing them never touches existing events. */
+  country: string;
+  timezone: string;
+  default_currency: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface OrganizationDefaults {
+  country?: string;
+  timezone?: string;
+  default_currency?: string;
+}
+
+/** `PATCH /v1/organizations/{id}`: the organization's defaults only. */
+export function updateOrganizationDefaults(organizationId: string, changes: OrganizationDefaults): Promise<Organization> {
+  return apiRequest<Organization>(`/v1/organizations/${organizationId}`, { method: "PATCH", body: changes });
 }
 
 export interface OrganizationInput {
@@ -17,18 +43,31 @@ export interface OrganizationInput {
   /** Optional, except for a name with no Latin letters (e.g. Amharic), which needs one. Lower-case, digits, hyphens. */
   slug?: string;
   description?: string | null;
+  /** Off by default: most organizers have no branches, and branch screens stay hidden for them. */
+  hasBranches?: boolean;
   /** The first branch. Leave out to get a branch called MAIN. Both fields are needed together. */
   defaultBranch?: { code: string; name: string };
 }
 
-/** Every organization. Platform roles only: tenant roles get `403 permission_denied`. */
-export async function listOrganizations(signal?: AbortSignal): Promise<Organization[]> {
-  const all: Organization[] = [];
-  for (let page = 1; ; page++) {
-    const { data, meta } = await apiList<Organization>(`/v1/organizations?page=${page}&pageSize=100`, { signal });
-    all.push(...data);
-    if (data.length === 0 || all.length >= meta.count) return all;
-  }
+export interface OrganizationListParams {
+  page: number;
+  pageSize: number;
+  isActive?: boolean;
+}
+
+/** One page of organizations. Platform roles only: tenant roles get `403 permission_denied`. */
+export function listOrganizations(params: OrganizationListParams, signal?: AbortSignal): Promise<Paginated<Organization>> {
+  return apiPage<Organization>("/v1/organizations", {
+    page: params.page,
+    pageSize: clampPageSize(params.pageSize),
+    query: { is_active: params.isActive === undefined ? undefined : String(params.isActive) },
+    signal,
+  });
+}
+
+/** Every organization, for the platform role's organization picker. Platform roles only. */
+export function listAllOrganizations(signal?: AbortSignal): Promise<Organization[]> {
+  return apiListAll<Organization>("/v1/organizations", { signal });
 }
 
 /** One organization: a tenant role may read its own. */
@@ -41,7 +80,7 @@ export function createOrganization(input: OrganizationInput): Promise<{ organiza
   return apiRequest("/v1/organizations", {
     method: "POST",
     body: {
-      organization: { name: input.name, slug: input.slug, description: input.description },
+      organization: { name: input.name, slug: input.slug, description: input.description, has_branches: input.hasBranches },
       ...(input.defaultBranch ? { default_branch: input.defaultBranch } : {}),
     },
   });

@@ -9,6 +9,7 @@ import { EmptyState } from "../../../components/ui/empty-state";
 import { SearchIcon } from "../../../components/ui/icons";
 import { Skeleton } from "../../../components/ui/skeleton";
 import { parseEventQuery } from "../../../lib/marketplace/query";
+import { CatalogUnavailable } from "../../../components/marketplace/public/catalog-states";
 import { eventsService } from "../../../lib/services/events-service";
 
 export const metadata: Metadata = {
@@ -20,6 +21,7 @@ type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 async function ExploreResults({ searchParams }: { searchParams: SearchParams }) {
   const query = parseEventQuery(await searchParams);
+  if (!(await eventsService.isAvailable())) return <CatalogUnavailable retryHref="/events" />;
   const [result, facets, now] = await Promise.all([eventsService.list(query), eventsService.getFacets(), eventsService.getNow()]);
   const filtered = Boolean(query.q) || query.category !== "all" || query.city !== "all" || query.date !== "upcoming" || query.price !== "all" || query.organizer !== "all";
 

@@ -21,6 +21,7 @@ import { EmptyState } from "../../components/ui/empty-state";
 import { CalendarIcon } from "../../components/ui/icons";
 import { exploreHref } from "../../lib/marketplace/query";
 import { cn } from "../../lib/utils";
+import { CatalogUnavailable } from "../../components/marketplace/public/catalog-states";
 import { eventsService } from "../../lib/services/events-service";
 import type { EventSummary } from "../../types/marketplace";
 
@@ -44,6 +45,14 @@ function PickPanel({ events, now, empty }: { events: EventSummary[]; now: string
 
 /** The marketplace landing page, at `/`. Header and footer come from the layout in this route group. */
 export default async function HomePage() {
+  // An empty list would read as "no events": when the API can't be reached, say so instead.
+  if (!(await eventsService.isAvailable())) {
+    return (
+      <Container className="py-24">
+        <CatalogUnavailable retryHref="/" />
+      </Container>
+    );
+  }
   const home = await eventsService.getHome();
   const { picks, now } = home;
 
@@ -51,7 +60,7 @@ export default async function HomePage() {
   const organizerEvents: Record<string, ShowcaseEvent[]> = {};
   for (const e of [...home.wall].sort((a, b) => a.startsAt.localeCompare(b.startsAt))) {
     const list = (organizerEvents[e.organizerId] ??= []);
-    if (list.length < 3) list.push({ id: e.id, slug: e.slug, title: e.title, startsAt: e.startsAt, where: whereLabel(e) });
+    if (list.length < 3) list.push({ id: e.id, slug: e.slug, title: e.title, startsAt: e.startsAt, timezone: e.timezone, where: whereLabel(e) });
   }
 
   const tabs: PickTab[] = [

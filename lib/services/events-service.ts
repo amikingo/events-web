@@ -1,5 +1,5 @@
 import { cache } from "react";
-import { buildCatalog, isDiscoverable, toSummary } from "../marketplace/catalog";
+import { isDiscoverable, loadCatalog, loadEventDetail, toSummary } from "../marketplace/catalog";
 import type { Catalog } from "../marketplace/catalog";
 import { EXPLORE_PAGE_SIZE } from "../marketplace/config";
 import { addDays, addisDateKey, addisParts, DAY_MS } from "../marketplace/datetime";
@@ -7,15 +7,15 @@ import { eventPhase } from "../marketplace/event-state";
 import type { Category, City, CityId, EventItem, EventQuery, EventQueryResult, EventSummary, Organizer, Venue } from "../../types/marketplace";
 
 /**
- * Read side of the marketplace, used by Server Components. Backed by the mock catalog today; to connect an API, keep
- * these method names and return types and replace the bodies (the catalog builder goes away).
+ * Read side of the marketplace, used by Server Components. Backed by the public API (no login): the catalog is built
+ * from `GET /v1/public/events` and an event's own page from `GET /v1/public/organizations/{org}/events/{event}`
+ * (see `lib/marketplace/catalog.ts`). The method names and return types are the ones the screens always used.
  *
- * No caching (project decision): the catalog is rebuilt for every request, so "now" — used to date the mock events
- * relative to today — and every derived state (upcoming, sold out…) is always current. React's `cache()` only shares
- * one catalog between the components of a single request (one consistent "now" per page); nothing is kept between
- * requests.
+ * No caching (project decision): the catalog is rebuilt for every request, so "now" and every derived state
+ * (upcoming, ongoing, registration open…) is always current. React's `cache()` only shares one catalog between the
+ * components of a single request (one consistent "now" per page); nothing is kept between requests.
  */
-const getCatalog = cache(async (): Promise<Catalog> => buildCatalog(new Date()));
+const getCatalog = cache(async (): Promise<Catalog> => loadCatalog(new Date()));
 
 export interface HomeData {
   now: string;
@@ -192,15 +192,16 @@ export const eventsService = {
     return { now: c.generatedAt, featured, trending, upcoming, thisWeek, nearby, categories, cities: c.cities, organizers, spotlight, wall: hottest, picks, liveCount: live.length };
   },
 
+  /** `slug` is `<organization slug>/<event slug>`. */
   async getBySlug(slug: string): Promise<EventDetail | null> {
+    const [orgSlug, eventSlug] = slug.split("/");
+    if (!orgSlug || !eventSlug) return null;
     const c = await getCatalog();
     const now = Date.parse(c.generatedAt);
-    const event = c.events.find((e) => e.slug === slug);
-    if (!event) return null;
-    const organizer = c.organizers.find((o) => o.id === event.organizerId)!;
-    const venue = event.venueId ? c.venues.find((v) => v.id === event.venueId) : undefined;
-    const city = venue ? c.cities.find((x) => x.id === venue.cityId) : undefined;
-    const category = c.categories.find((x) => x.id === event.categoryId)!;
+    // The event's own page has the description and ticket types the list doesn't; it also opens unlisted and past events.
+    const loaded = await loadEventDetail(orgSlug, eventSlug);
+    if (!loaded) return null;
+    const { event, organizer, venue, city, category } = loaded;
     const live = c.events.filter((e) => e.id !== event.id && isDiscoverable(e, now));
     const related = [...live]
       .sort((a, b) => Number(b.categoryId === event.categoryId) * 2 + Number(b.organizerId === event.organizerId) - (Number(a.categoryId === event.categoryId) * 2 + Number(a.organizerId === event.organizerId)) || a.startsAt.localeCompare(b.startsAt))
@@ -211,12 +212,17 @@ export const eventsService = {
       event,
       summary: toSummary(event, c),
       organizer,
-      organizerUpcoming: live.filter((e) => e.organizerId === organizer.id).length,
+      organizerUpcoming: live.filter((e) => e.organizerId === organizer.id).length + 1,
       venue,
       city,
       category,
       related,
     };
+  },
+
+  /** False when the API couldn't be reached: pages then say so, because empty lists would wrongly read as "no events". */
+  async isAvailable(): Promise<boolean> {
+    return !(await getCatalog()).unavailable;
   },
 
   /** The catalog's "now" (ISO) — what server-rendered states are computed against. */

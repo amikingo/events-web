@@ -25,8 +25,18 @@ export function toAddisIso(key: string, time: string): string {
   return `${key}T${time}:00${MARKETPLACE.utcOffset}`;
 }
 
-/** Local Addis Ababa parts of an ISO moment. */
-export function addisParts(iso: string): { key: string; hh: string; mm: string; weekday: number } {
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/**
+ * Local parts of an ISO moment, in `timeZone` (an IANA name such as `Africa/Nairobi`; Addis Ababa when left out). Every
+ * event carries its own timezone, so the clock time a visitor reads is the one at the venue, wherever they are.
+ */
+export function addisParts(iso: string, timeZone?: string): { key: string; hh: string; mm: string; weekday: number } {
+  if (timeZone && timeZone !== MARKETPLACE.timeZone) {
+    const parts = fmt({ year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23", weekday: "short" }, timeZone).formatToParts(new Date(iso));
+    const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+    return { key: `${get("year")}-${get("month")}-${get("day")}`, hh: get("hour"), mm: get("minute"), weekday: Math.max(0, WEEKDAYS.indexOf(get("weekday"))) };
+  }
   const shifted = new Date(Date.parse(iso) + OFFSET_MS);
   return {
     key: shifted.toISOString().slice(0, 10),
@@ -37,29 +47,29 @@ export function addisParts(iso: string): { key: string; hh: string; mm: string; 
 }
 
 const fmtCache = new Map<string, Intl.DateTimeFormat>();
-function fmt(opts: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
-  const k = JSON.stringify(opts);
+function fmt(opts: Intl.DateTimeFormatOptions, timeZone: string = MARKETPLACE.timeZone): Intl.DateTimeFormat {
+  const k = `${timeZone}|${JSON.stringify(opts)}`;
   let f = fmtCache.get(k);
   if (!f) {
-    f = new Intl.DateTimeFormat("en-US", { timeZone: MARKETPLACE.timeZone, ...opts });
+    f = new Intl.DateTimeFormat("en-US", { timeZone, ...opts });
     fmtCache.set(k, f);
   }
   return f;
 }
 
 /** `Nov 27, 2026`, or `Fri, Nov 27` with `weekday` and without `year`. Same wording as `formatDate` in lib/format. */
-export function formatEventDate(iso: string, { weekday = false, year = true }: { weekday?: boolean; year?: boolean } = {}): string {
-  return fmt({ month: "short", day: "numeric", ...(year ? { year: "numeric" } : {}), ...(weekday ? { weekday: "short" } : {}) }).format(new Date(iso));
+export function formatEventDate(iso: string, { weekday = false, year = true, timeZone }: { weekday?: boolean; year?: boolean; timeZone?: string } = {}): string {
+  return fmt({ month: "short", day: "numeric", ...(year ? { year: "numeric" } : {}), ...(weekday ? { weekday: "short" } : {}) }, timeZone).format(new Date(iso));
 }
 
 /** `Friday, November 27, 2026` — for the event page header. */
-export function formatEventDateLong(iso: string): string {
-  return fmt({ weekday: "long", month: "long", day: "numeric", year: "numeric" }).format(new Date(iso));
+export function formatEventDateLong(iso: string, timeZone?: string): string {
+  return fmt({ weekday: "long", month: "long", day: "numeric", year: "numeric" }, timeZone).format(new Date(iso));
 }
 
 /** 12-hour local time (`7:30 PM`), via `formatTime` from lib/format. */
-export function formatEventTime(iso: string): string {
-  const { hh, mm } = addisParts(iso);
+export function formatEventTime(iso: string, timeZone?: string): string {
+  const { hh, mm } = addisParts(iso, timeZone);
   return formatTime(`${hh}:${mm}`);
 }
 
@@ -67,21 +77,29 @@ export function formatEventTime(iso: string): string {
  * The one-line "when" of an event:
  * same day → `Fri, Nov 27 · 7:30 PM – 11:30 PM`; several days → `Fri, Dec 11 – Sat, Dec 12`.
  */
-export function formatEventWhen(startIso: string, endIso: string): string {
-  const s = addisParts(startIso);
-  const e = addisParts(endIso);
+export function formatEventWhen(startIso: string, endIso: string, timeZone?: string): string {
+  const s = addisParts(startIso, timeZone);
+  const e = addisParts(endIso, timeZone);
   const sameDay = s.key === e.key || (Date.parse(endIso) - Date.parse(startIso) < 12 * 60 * 60 * 1000 && Number(e.hh) < 6);
-  if (sameDay) return `${formatEventDate(startIso, { weekday: true, year: false })} · ${formatEventTime(startIso)} – ${formatEventTime(endIso)}`;
-  return `${formatEventDate(startIso, { weekday: true, year: false })} – ${formatEventDate(endIso, { weekday: true, year: false })}`;
+  const day = (iso: string) => formatEventDate(iso, { weekday: true, year: false, timeZone });
+  if (sameDay) return `${day(startIso)} · ${formatEventTime(startIso, timeZone)} – ${formatEventTime(endIso, timeZone)}`;
+  return `${day(startIso)} – ${day(endIso)}`;
+}
+
+/** "Dubai time" when an event is not on Addis Ababa time, so a different clock is never a surprise; empty otherwise. */
+export function zoneNote(timeZone?: string): string {
+  if (!timeZone || timeZone === MARKETPLACE.timeZone) return "";
+  const city = timeZone.split("/").pop()!.replace(/_/g, " ");
+  return `${city} time`;
 }
 
 /** The calendar chip on cards: `{ weekday: "FRI", day: "27", month: "NOV" }`. */
-export function dateChip(iso: string): { weekday: string; day: string; month: string } {
+export function dateChip(iso: string, timeZone?: string): { weekday: string; day: string; month: string } {
   const d = new Date(iso);
   return {
-    weekday: fmt({ weekday: "short" }).format(d).toUpperCase(),
-    day: fmt({ day: "numeric" }).format(d),
-    month: fmt({ month: "short" }).format(d).toUpperCase(),
+    weekday: fmt({ weekday: "short" }, timeZone).format(d).toUpperCase(),
+    day: fmt({ day: "numeric" }, timeZone).format(d),
+    month: fmt({ month: "short" }, timeZone).format(d).toUpperCase(),
   };
 }
 

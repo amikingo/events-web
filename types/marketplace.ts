@@ -3,7 +3,8 @@
  * independently. Every date is an ISO string with an explicit offset (Addis Ababa, +03:00).
  */
 
-export type CategoryId = "music" | "business" | "tech" | "arts" | "food" | "sports";
+/** A category's id. Organizers type categories freely, so the ids come from the events themselves (a slug of the name). */
+export type CategoryId = string;
 
 export interface Category {
   id: CategoryId;
@@ -11,7 +12,8 @@ export interface Category {
   description: string;
 }
 
-export type CityId = "addis-ababa" | "bahir-dar" | "hawassa" | "dire-dawa" | "gondar" | "adama";
+/** A city's id, when the venue's city is one we know the coordinates of (`addis-ababa`…). */
+export type CityId = string;
 
 export interface City {
   id: CityId;
@@ -44,8 +46,11 @@ export interface Venue {
   /** Where the venue's pin sits. Without it the map centres on the city. */
   lat?: number;
   lng?: number;
+  /** 0 when the venue has no stated capacity. */
   capacity: number;
-  /** Shown under the map: how to get there. */
+  /** The city as the organizer wrote it, when it is not one of the known cities. */
+  cityName?: string;
+  /** Shown under the map: how to get there. Empty when the organizer gave none. */
   directions: string;
 }
 
@@ -150,8 +155,26 @@ export interface EventItem {
   publishedAt: string;
   ageRestriction?: string;
   language: string;
-  /** Picks the cover artwork. */
+  /** Picks the cover artwork when there is no uploaded picture. */
   coverPattern: CoverPattern;
+  /** The organizer's uploaded cover (a full URL), when there is one. */
+  coverUrl?: string;
+  /** The IANA timezone the event happens in (`Africa/Addis_Ababa`). Dates are shown in it. */
+  timezone?: string;
+  /** Sign-up details, from the event page. Only on events loaded for their own page. */
+  registration?: EventRegistration;
+}
+
+/** What the sign-up form needs from the API's event page. */
+export interface EventRegistration {
+  open: boolean;
+  opensAt: string | null;
+  closesAt: string | null;
+  /** Show this notice on the form and send its version back. */
+  privacyVersion: string;
+  organizationSlug: string;
+  eventSlug: string;
+  ticketTypes: { code: string; name: string }[];
 }
 
 export type CoverPattern = "rings" | "grid" | "arcs" | "dots" | "waves" | "stripes" | "burst" | "blocks";
@@ -179,6 +202,8 @@ export interface EventSummary {
   lifecycleNote?: string;
   latestUpdate?: EventUpdate;
   coverPattern: CoverPattern;
+  coverUrl?: string;
+  timezone?: string;
   minPrice: number;
   isFree: boolean;
   ticketTypes: TicketType[];

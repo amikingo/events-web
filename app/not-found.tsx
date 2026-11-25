@@ -15,7 +15,7 @@ export default function NotFound() {
           title="Page not found"
           description="The link you followed may be broken or the page may have been moved."
           actions={
-            <Link href="/admin/dashboard">
+            <Link href="/admin">
               <Button>Return to dashboard</Button>
             </Link>
           }

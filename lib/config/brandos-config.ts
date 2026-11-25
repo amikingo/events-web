@@ -285,7 +285,8 @@ export const COMMAND_PALETTE_ITEMS: SearchCommandItem[] = [
 
 /** Breadcrumb resolver. Dashboard pages live under /admin, so the first segment is the section, not a crumb. */
 export function getBreadcrumbTrail(pathname: string): { label: string; href?: string }[] {
-  const HOME = "/admin/dashboard";
+  // The signed-in start page: it opens the first page the role may see.
+  const HOME = "/admin";
   const parts = pathname.split("/").filter(Boolean).slice(1);
   if (parts.length === 0 || pathname === HOME) {
     return [{ label: "Home", href: HOME }, { label: "Today" }];

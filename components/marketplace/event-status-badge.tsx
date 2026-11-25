@@ -56,7 +56,7 @@ export function EventStatusBadge({ event, now, size = "sm", variant, className }
     case "closed":
       return (
         <Pill tone="neutral" {...common}>
-          Sales closed
+          Registration closed
         </Pill>
       );
     case "opens-soon":

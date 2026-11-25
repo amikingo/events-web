@@ -1,12 +1,8 @@
 import { attendeeAuth } from "@/app/auth/attendee/attendee-auth-service";
 import { staffSession } from "@/app/auth/staff/staff-store";
-import { loginStaff, logoutStaff, switchStaffAssignment } from "@/lib/api/auth";
-import { setSessionLostHandler } from "@/lib/api/client";
-import { clearSessionRoles } from "@/lib/api/session-store";
-import { branchesService } from "@/lib/services/branches-service";
-import { organizationsService } from "@/lib/services/organizations-service";
-import { loadPermissions, resetPermissions } from "@/lib/services/permissions-service";
-import type { StaffToken } from "@/lib/api/auth";
+import { loginStaff, logoutStaff } from "@/lib/api/auth";
+import { onSessionTerminated } from "@/lib/api-client";
+import type { StaffToken } from "@/lib/auth-token";
 import type { Role, User } from "@/types";
 
 const DEMO_USER: User = {
@@ -58,13 +54,9 @@ function toUser({ user, assignment }: StaffToken): User {
   };
 }
 
-/** Forget the person everywhere: the cached profile, what their role may do, and the data loaded for them. */
+/** Forget the person everywhere: the cached profile. (Server data lives in TanStack Query; the auth context clears it.) */
 function endSession(): void {
   staffSession.set(null);
-  clearSessionRoles();
-  resetPermissions();
-  branchesService.reset();
-  organizationsService.reset();
 }
 
 class AuthService {
@@ -73,12 +65,12 @@ class AuthService {
   }
 
   /**
-   * Signs in with events-api (`POST /v1/auth/staff/login`). `mobile` can be `09…` or `+251…`.
-   * Throws `ApiError`: switch on `error.code`, never on its message. The access token stays in memory
-   * (`lib/api/client.ts`); only the profile below is kept for the UI.
+   * Signs in with events-api (`POST /v1/auth/staff/login`). A string is a mobile number (`09…` or `+251…`).
+   * Throws `ApiError`: switch on `error.code`, never on its message. The access token stays in the API client's
+   * memory; only the profile below is kept, for the header and the sign-in page.
    */
-  async login(mobile: string, password: string): Promise<User> {
-    const session = await loginStaff(mobile, password);
+  async login(identifier: string | { mobile: string } | { email: string }, password: string): Promise<User> {
+    const session = await loginStaff(typeof identifier === "string" ? { mobile: identifier } : identifier, password);
     const user = toUser(session);
 
     // One session at a time: signing in as staff signs any attendee out.
@@ -87,28 +79,19 @@ class AuthService {
     return user;
   }
 
-  /**
-   * Changes which of the person's roles they are using (`POST /v1/auth/staff/switch-assignment`). The new role has
-   * its own organization and permissions, so everything loaded for the old one is dropped and `/me` is read again.
-   * Throws `ApiError`.
-   */
-  async switchAssignment(assignmentId: string): Promise<User> {
-    const session = await switchStaffAssignment(assignmentId);
-    const user = toUser(session);
-    staffSession.set(user);
-    resetPermissions();
-    branchesService.reset();
-    organizationsService.reset();
-    void loadPermissions({ force: true });
-    return user;
+  /** Signs out on the server (best effort). The API client then ends the session, which runs `endSession`. */
+  async logout(): Promise<void> {
+    await logoutStaff();
   }
 
-  async logout(): Promise<void> {
-    try {
-      await logoutStaff();
-    } finally {
-      endSession();
-    }
+  /** After a role switch: the cached profile follows the new role. (The auth context clears the old role's data.) */
+  rememberProfileFrom(session: StaffToken | null): void {
+    if (session) staffSession.set(toUser(session));
+  }
+
+  /** The session ended (sign-out, or a refresh refused for good). */
+  forgetProfile(): void {
+    endSession();
   }
 
   async updateProfile(updates: Partial<User>): Promise<User> {
@@ -137,6 +120,7 @@ class AuthService {
 
 export const authService = new AuthService();
 
-// A refresh that fails for good (`refresh_token_missing` / `refresh_token_invalid`) ends the session everywhere.
-setSessionLostHandler(endSession);
+// However the session ends (sign-out, or a refresh refused for good), the profile and data go with it, also on
+// pages outside the signed-in app (the sign-in page, the visitor site's header).
+onSessionTerminated(endSession);
 

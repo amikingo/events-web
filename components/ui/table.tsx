@@ -216,6 +216,48 @@ function buildPageList(current: number, pages: number): (number | "…")[] {
   return list;
 }
 
+// Phone + server paging: the page hands over one page of rows at a time, so the Table keeps the pages it has received.
+type StackPages<T> = Record<number, T[]>;
+
+/**
+ * The pages after `data` arrived for `page`. Page 1 starts the list over (a new search, filter or sort comes back as
+ * page 1); any other page is added next to the ones already loaded. Returns `prev` itself when nothing changed, so a
+ * render that hands over the same rows does not update state again.
+ */
+function receiveStackPage<T>(prev: StackPages<T>, page: number, data: T[]): StackPages<T> {
+  const same = (existing: T[] | undefined) =>
+    existing !== undefined && (existing === data || (existing.length === 0 && data.length === 0));
+  if (page <= 1) {
+    const keys = Object.keys(prev);
+    if (keys.length === 1 && keys[0] === "1" && same(prev[1])) return prev;
+    return { 1: data };
+  }
+  if (same(prev[page])) return prev;
+  return { ...prev, [page]: data };
+}
+
+/** Every loaded page in page order, each row once (a page that arrived twice, or overlaps, adds nothing new). */
+function flattenStackPages<T>(pages: StackPages<T>, getRowId: (row: T) => string | number): T[] {
+  const seen = new Set<string | number>();
+  const rows: T[] = [];
+  for (const key of Object.keys(pages).map(Number).sort((a, b) => a - b)) {
+    for (const row of pages[key]!) {
+      const id = getRowId(row);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      rows.push(row);
+    }
+  }
+  return rows;
+}
+
+/** The page to ask for next, or null when the last page is already loaded. */
+function nextStackPage(loadedPageCount: number, totalRows: number, rowsPerPage: number): number | null {
+  const pageCount = Math.max(1, Math.ceil(totalRows / Math.max(1, rowsPerPage)));
+  const next = loadedPageCount + 1;
+  return next <= pageCount ? next : null;
+}
+
 export function Table<T>({
   columns,
   data,
@@ -404,7 +446,14 @@ export function Table<T>({
 
   const visibleCb = useRef(onVisibleRowsChange);
   visibleCb.current = onVisibleRowsChange;
+  // Report only when the rows really changed. A caller with inline `columns` / `searchFn` gets a new `sorted` array on
+  // every render, and reporting each one made the record workspace re-render the table forever ("Maximum update
+  // depth exceeded"). Fix from bookings_web.
+  const lastVisible = useRef<T[] | null>(null);
   useEffect(() => {
+    const prev = lastVisible.current;
+    if (prev && prev.length === sorted.length && prev.every((row, i) => row === sorted[i])) return;
+    lastVisible.current = sorted;
     visibleCb.current?.(sorted);
   }, [sorted]);
 
@@ -412,18 +461,92 @@ export function Table<T>({
     ? Math.max(1, Math.ceil((isServerPaged ? totalRows! : sorted.length) / activeRpp))
     : 1;
 
+  // Phone + server paging: the page hands over one page of rows at a time, so keep the pages already received
+  // and ask for the next one (through `onPageChange`) when the end of the list scrolls into view. A page that
+  // passes its own `onLoadMore` appends to `data` itself and is left alone. (From bookings_web.)
+  const stackedServer = stacked && isServerPaged && !onLoadMore;
+  const [stackPages, setStackPages] = useState<StackPages<T>>({});
+  const [awaitingPage, setAwaitingPage] = useState<number | null>(null);
+  const stackPagesRef = useRef(stackPages);
+  stackPagesRef.current = stackPages;
+  const getRowIdRef = useRef(getRowId);
+  getRowIdRef.current = getRowId;
+  const sawLoading = useRef(false);
+  /** The rows on screen when the next page was asked for: until `data` is a different array, the page has not arrived. */
+  const dataAtRequest = useRef<T[] | null>(null);
+  useEffect(() => {
+    if (loading) sawLoading.current = true;
+  }, [loading]);
+  useEffect(() => {
+    // Between pages `data` is stale or empty, so only a finished load counts.
+    if (!stackedServer || loading) return;
+    if (activePage > 1) {
+      // Still the previous page's rows (a page that keeps them while the next one loads): not the page we asked for.
+      if (data === dataAtRequest.current) return;
+      // A page that never reports `loading` shows an empty list while the next page loads: that is not an empty page.
+      if (data.length === 0 && !sawLoading.current) return;
+    }
+    sawLoading.current = false;
+    setStackPages((prev) => receiveStackPage(prev, activePage, data));
+  }, [stackedServer, loading, activePage, data]);
+  useEffect(() => {
+    if (activePage === 1) setAwaitingPage(null);
+  }, [activePage]);
+  useEffect(() => {
+    if (!stackedServer) {
+      setStackPages((prev) => (Object.keys(prev).length ? {} : prev));
+      setAwaitingPage(null);
+    } else if (activePage !== 1) {
+      // Entering the phone layout partway through the pages: the list starts from the first page.
+      if (onPageChange) onPageChange(1);
+      else setInternalPage(1);
+    }
+  }, [stackedServer]); // eslint-disable-line react-hooks/exhaustive-deps
+  const stackRows = useMemo(
+    () => (stackedServer ? flattenStackPages(stackPages, (row) => getRowIdRef.current(row)) : []),
+    [stackedServer, stackPages],
+  );
+  const stackLoadedPages = Math.max(0, ...Object.keys(stackPages).map(Number));
+  const stackWaiting = awaitingPage !== null && awaitingPage > 1 && stackPages[awaitingPage] === undefined;
+
   const pageRows = useMemo(() => {
-    if (stacked) return isServerPaged ? sorted : sorted.slice(0, Math.max(activeRpp, stackCount));
+    if (stacked) {
+      if (isServerPaged) return stackedServer && stackRows.length ? stackRows : sorted;
+      return sorted.slice(0, Math.max(activeRpp, stackCount));
+    }
     if (!pagination || isServerPaged) return sorted;
     const start = (activePage - 1) * activeRpp;
     return sorted.slice(start, start + activeRpp);
-  }, [sorted, pagination, isServerPaged, activePage, activeRpp, stacked, stackCount]);
+  }, [sorted, pagination, isServerPaged, activePage, activeRpp, stacked, stackCount, stackedServer, stackRows]);
 
   // Stacked cards load more as you scroll; a new search / filter / sort starts the list over.
   useEffect(() => {
     setStackCount(0);
   }, [activeQuery, activeQuickFilter, appliedFilters, activeSortCol, activeSortDir]);
-  const stackHasMore = stacked && (isServerPaged ? data.length < (totalRows ?? 0) : pageRows.length < sorted.length);
+  const stackNextPage = nextStackPage(stackLoadedPages || activePage, totalRows ?? 0, activeRpp);
+  const stackHasMore =
+    stacked &&
+    (isServerPaged
+      ? onLoadMore
+        ? data.length < (totalRows ?? 0)
+        : pageRows.length < (totalRows ?? 0) && stackNextPage !== null
+      : pageRows.length < sorted.length);
+  function loadMoreStacked() {
+    if (!isServerPaged) {
+      setStackCount((c) => Math.max(c, activeRpp) + activeRpp);
+      return;
+    }
+    if (onLoadMore) {
+      onLoadMore();
+      return;
+    }
+    if (stackWaiting || stackNextPage === null) return;
+    dataAtRequest.current = data;
+    sawLoading.current = false;
+    setAwaitingPage(stackNextPage);
+    if (onPageChange) onPageChange(stackNextPage);
+    else setInternalPage(stackNextPage);
+  }
 
   const totalCount = isServerPaged ? totalRows! : sorted.length;
   const rangeStart = totalCount === 0 ? 0 : (activePage - 1) * activeRpp + 1;
@@ -714,7 +837,8 @@ export function Table<T>({
 
       {/* The card itself isn't overflow-hidden (the Filters panel and its pickers must be able to hang below a short table), so the scroll area rounds its own corners where it touches the card edge. */}
       {stacked ? (
-        loading ? (
+        // Fetching a later page keeps the cards already on screen; only a first load (or a new search / filter) shows the skeleton.
+        loading && !(activePage > 1 && pageRows.length > 0) ? (
           <StackSkeleton />
         ) : pageRows.length === 0 ? (
           <div>{emptyContent}</div>
@@ -732,7 +856,8 @@ export function Table<T>({
             activeRowId={activeRowId}
             highlightIds={highlightIds}
             hasMore={stackHasMore}
-            onEndReached={() => (isServerPaged ? onLoadMore?.() : setStackCount((c) => Math.max(c, activeRpp) + activeRpp))}
+            loadingMore={stackWaiting || loadingMore}
+            onEndReached={loadMoreStacked}
           />
         )
       ) : (

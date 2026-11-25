@@ -124,7 +124,7 @@ export function SpotlightCarousel({ events, now }: { events: EventSummary[]; now
           <li key={e.id} className="w-[88%] flex-none snap-center sm:w-[82%] lg:w-[76%]" aria-roledescription="slide" aria-label={`${i + 1} of ${events.length}`}>
             <article className="group relative isolate flex aspect-[4/5] flex-col justify-end overflow-hidden rounded-lg sm:aspect-[16/9] lg:aspect-[21/9]">
               <div className="absolute inset-0 -z-10 transition-transform duration-(--motion-slow) ease-(--ease-slow) group-hover:scale-[1.03] motion-reduce:transition-none">
-                <EventCover seed={e.id} pattern={e.coverPattern} category={e.categoryId} />
+                <EventCover seed={e.id} pattern={e.coverPattern} category={e.categoryId} src={e.coverUrl} />
               </div>
               <div aria-hidden="true" className="absolute inset-0 -z-10 bg-gradient-to-t from-[color-mix(in_srgb,var(--color-paper-ink)_94%,transparent)] via-[color-mix(in_srgb,var(--color-paper-ink)_45%,transparent)] to-transparent" />
               <div className="flex flex-col gap-2 p-5 sm:p-8">
@@ -140,7 +140,7 @@ export function SpotlightCarousel({ events, now }: { events: EventSummary[]; now
                 <p className={cn("m-0 max-w-[560px] text-white/80 max-sm:line-clamp-2", landingType.lead)}>{e.summary}</p>
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
                   <p className="m-0 type-body-sm text-white/75">
-                    {formatEventWhen(e.startsAt, e.endsAt)}
+                    {formatEventWhen(e.startsAt, e.endsAt, e.timezone)}
                     <span className="max-sm:block">
                       <span className="sm:mx-1.5 max-sm:hidden">·</span>
                       {whereLabel(e)}

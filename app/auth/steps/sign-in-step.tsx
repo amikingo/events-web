@@ -5,7 +5,7 @@ import { useId, useState } from "react";
 import type { FormEvent } from "react";
 import { MARKETPLACE } from "@/lib/marketplace/config";
 import { phoneDigits, validateEmail, validatePhone } from "@/lib/marketplace/validation";
-import { ApiError } from "@/lib/api/client";
+import { ApiError } from "@/lib/api-client";
 import { attendeeAuth } from "@/app/auth/attendee/attendee-auth-service";
 import type { Channel } from "@/app/auth/attendee/attendee-auth-service";
 import { AuthCard, DemoHint, StepLink, landing, safeNext } from "@/app/auth/shared";

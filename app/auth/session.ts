@@ -16,7 +16,7 @@ interface Common {
   email: string;
   initials: string;
   /** Where this person lands after signing in. */
-  home: "/admin/dashboard" | "/my-tickets";
+  home: "/admin" | "/my-tickets";
 }
 export type Session =
   | (Common & { kind: "staff"; role: User["role"]; user: User })
@@ -31,7 +31,7 @@ export function useSession(): Session | null | undefined {
   const staff = useStorageStore(staffSession);
   const account = useAttendee();
   if (staff === undefined || account === undefined) return undefined;
-  if (staff) return { kind: "staff", role: staff.role, user: staff, name: staff.name, email: staff.email, initials: staff.initials, home: "/admin/dashboard" };
+  if (staff) return { kind: "staff", role: staff.role, user: staff, name: staff.name, email: staff.email, initials: staff.initials, home: "/admin" };
   if (account) return { kind: "attendee", role: "Attendee", account, name: account.name, email: account.email, initials: initialsOf(account.name), home: "/my-tickets" };
   return null;
 }

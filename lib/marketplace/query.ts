@@ -13,8 +13,6 @@ export const DEFAULT_QUERY: EventQuery = {
   page: 1,
 };
 
-const CATEGORY_IDS: CategoryId[] = ["music", "business", "tech", "arts", "food", "sports"];
-const CITY_IDS: CityId[] = ["addis-ababa", "bahir-dar", "hawassa", "dire-dawa", "gondar", "adama"];
 const DATES: DateFilter[] = ["upcoming", "today", "weekend", "week", "month", "past"];
 const PRICES: PriceFilter[] = ["all", "free", "paid"];
 const SORTS: SortOption[] = ["relevance", "upcoming", "newest"];
@@ -22,6 +20,8 @@ const SORTS: SortOption[] = ["relevance", "upcoming", "newest"];
 type RawParams = Record<string, string | string[] | undefined>;
 
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? "";
+/** A category or city slug from the address, or "all". Only lower-case letters, digits and hyphens get through. */
+const slugParam = (value: string): string => (/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value) ? value : "all");
 const pick = <T extends string>(value: string, allowed: readonly T[], fallback: T): T => (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
 
 export function parseEventQuery(params: RawParams): EventQuery {
@@ -29,8 +29,9 @@ export function parseEventQuery(params: RawParams): EventQuery {
   const city = one(params.city);
   return {
     q: one(params.q).trim().slice(0, 80),
-    category: pick(one(params.category), [...CATEGORY_IDS, "all"] as const, "all"),
-    city: city === "online" ? "online" : pick(city, [...CITY_IDS, "all"] as const, "all"),
+    // Categories and cities come from the events themselves, so any slug is accepted; an unknown one simply matches nothing.
+    category: slugParam(one(params.category)),
+    city: city === "online" ? "online" : slugParam(city),
     date: pick(one(params.date), DATES, "upcoming"),
     price: pick(one(params.price), PRICES, "all"),
     sort: pick(one(params.sort), SORTS, "relevance"),

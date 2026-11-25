@@ -152,10 +152,10 @@ export function ScrollZoomGallery({ events }: { events: EventSummary[] }) {
                   className="relative overflow-hidden rounded-lg shadow-modal ring-1 ring-white/10 transition-[translate,scale] duration-[900ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
                   style={{ width: `${t.w}vw`, height: `${t.h}vh`, translate: `calc((1 - var(--on)) * ${t.x}vw) calc((1 - var(--on)) * ${t.y}vh)`, scale: `calc(1 + var(--on) * ${CENTRE_SCALE - 1})` }}
                 >
-                  <EventCover seed={e.id} pattern={e.coverPattern} category={e.categoryId} />
+                  <EventCover seed={e.id} pattern={e.coverPattern} category={e.categoryId} src={e.coverUrl} />
                   {/* The tile at the middle names its event; it clears as the tile starts to grow. */}
                   <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[color-mix(in_srgb,var(--color-paper-ink)_85%,transparent)] to-transparent px-3 pb-2.5 pt-8 transition-opacity duration-500" style={{ opacity: `calc(var(--on) * max(0, 1 - var(--f) * 6))` }}>
-                    <span className="hidden type-label text-white/70 sm:block">{formatEventDate(e.startsAt, { weekday: true, year: false })}</span>
+                    <span className="hidden type-label text-white/70 sm:block">{formatEventDate(e.startsAt, { weekday: true, year: false, timeZone: e.timezone })}</span>
                     <span className="text-[10px] font-semibold leading-tight text-white line-clamp-2 sm:type-body-sm sm:line-clamp-1">{e.title}</span>
                   </div>
                 </div>
@@ -200,7 +200,7 @@ export function ScrollZoomGallery({ events }: { events: EventSummary[] }) {
             </p>
             <h3 className={cn("m-0 mt-3 max-w-[760px] text-white", landingType.title)}>{c.title}</h3>
             <p className={cn("m-0 mt-4 max-w-[520px] text-white/80", landingType.lead)}>
-              {formatEventDate(c.startsAt, { weekday: true, year: false })} · {c.venueName ?? c.cityName ?? "Online"}
+              {formatEventDate(c.startsAt, { weekday: true, year: false, timeZone: c.timezone })} · {c.venueName ?? c.cityName ?? "Online"}
             </p>
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
               <Button asChild>

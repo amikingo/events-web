@@ -1,4 +1,14 @@
-import { apiList, apiRequest } from "@/lib/api/client";
+/**
+ * Branches of an organization (module BRANCHES).
+ *
+ *   GET   /v1/organizations/:organizationId/branches
+ *   POST  /v1/organizations/:organizationId/branches
+ *   GET   /v1/organizations/:organizationId/branches/:branchId
+ *   PATCH /v1/organizations/:organizationId/branches/:branchId
+ *   PATCH /v1/organizations/:organizationId/branches/:branchId/status
+ */
+import { apiListAll, apiPage, apiRequest, clampPageSize } from "@/lib/api-client";
+import type { Paginated } from "@/lib/api-client";
 
 /** A branch as `GET /v1/organizations/{id}/branches` returns it (the API's own field names). */
 export interface Branch {
@@ -21,14 +31,30 @@ export interface BranchInput {
 
 const base = (organizationId: string) => `/v1/organizations/${organizationId}/branches`;
 
-/** Every branch of an organization. The API pages at 100 at most, so this reads page after page until it has all. */
-export async function listBranches(organizationId: string, signal?: AbortSignal): Promise<Branch[]> {
-  const all: Branch[] = [];
-  for (let page = 1; ; page++) {
-    const { data, meta } = await apiList<Branch>(`${base(organizationId)}?page=${page}&pageSize=100`, { signal });
-    all.push(...data);
-    if (data.length === 0 || all.length >= meta.count) return all;
-  }
+export interface BranchListParams {
+  page: number;
+  pageSize: number;
+  /** Only active (true) or only switched-off (false) branches; all when left out. */
+  isActive?: boolean;
+}
+
+/** One page of branches. The page size is clamped to the API's limit (100). */
+export function listBranches(organizationId: string, params: BranchListParams, signal?: AbortSignal): Promise<Paginated<Branch>> {
+  return apiPage<Branch>(base(organizationId), {
+    page: params.page,
+    pageSize: clampPageSize(params.pageSize),
+    query: { is_active: params.isActive === undefined ? undefined : String(params.isActive) },
+    signal,
+  });
+}
+
+/** Every branch of an organization (all pages). */
+export function listAllBranches(organizationId: string, signal?: AbortSignal): Promise<Branch[]> {
+  return apiListAll<Branch>(base(organizationId), { signal });
+}
+
+export function getBranch(organizationId: string, branchId: string, signal?: AbortSignal): Promise<Branch> {
+  return apiRequest<Branch>(`${base(organizationId)}/${branchId}`, { signal });
 }
 
 export function createBranch(organizationId: string, input: BranchInput): Promise<Branch> {

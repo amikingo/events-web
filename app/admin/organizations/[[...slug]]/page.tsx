@@ -1,8 +1,9 @@
 "use client";
 
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { usePathname } from "next/navigation";
-import { Suspense, useEffect, useState, useSyncExternalStore } from "react";
-import { staffSession } from "@/app/auth/staff/staff-store";
+import { Suspense, useEffect, useState } from "react";
+import { Can, useModuleAccess } from "@/components/ability-provider";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -14,17 +15,19 @@ import { Skeleton, SkeletonStack } from "@/components/ui/skeleton";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Table } from "@/components/ui/table";
 import type { ColumnDef } from "@/components/ui/table";
-import { listBranches } from "@/lib/api/branches";
-import type { Branch } from "@/lib/api/branches";
+import { listAllBranches } from "@/lib/api/branches";
 import { describeApiError } from "@/lib/api/errors";
-import type { Organization } from "@/lib/api/organizations";
+import { createOrganization, getOrganization, listOrganizations, updateOrganizationDefaults } from "@/lib/api/organizations";
+import type { Organization, OrganizationInput } from "@/lib/api/organizations";
+import { MODULE_CODES } from "@/lib/constants/modules";
 import { formatDate } from "@/lib/format";
-import { useStorageStore } from "@/lib/marketplace/storage-store";
-import { organizationsService } from "@/lib/services/organizations-service";
-import { usePermissions } from "@/lib/services/permissions-service";
+import { useOrganization } from "@/lib/organization-context";
+import { branchQk, organizationQk } from "@/lib/query-keys";
+import { OrganizationForm } from "./organization-form";
+import { toast } from "@/components/ui/toaster";
 
 const BASE = "/admin/organizations";
-const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const MODULE = MODULE_CODES.ORGANIZATIONS;
 
 const initialsOf = (name: string) =>
   name
@@ -57,76 +60,21 @@ const columns: ColumnDef<Organization>[] = [
   { key: "created", header: "Created", sortable: true, filterValue: (r) => r.created_at, accessor: (r) => formatDate(r.created_at) },
 ];
 
-const sections = [
-  {
-    id: "organization",
-    title: "Organization",
-    hint: "The company or team that runs events.",
-    fields: [
-      { name: "name", label: "Name", required: true, requiredMessage: "Enter the organization's name.", full: true, placeholder: "Selam Events" },
-      {
-        name: "slug",
-        label: "Slug",
-        hint: "Lower-case letters, numbers and hyphens. Left empty, we make one from the name. A name with no Latin letters, like Amharic, needs one.",
-        placeholder: "selam-events",
-        full: true,
-        validate: (value: string) => {
-          const v = value.trim();
-          if (!v) return undefined;
-          return v.length >= 2 && SLUG.test(v) ? undefined : "Use at least 2 lower-case letters, numbers or hyphens, like selam-events.";
-        },
-      },
-      { name: "description", label: "Description", type: "textarea" as const, full: true, hint: "Optional." },
-    ],
-  },
-  {
-    id: "first-branch",
-    title: "First branch",
-    hint: "Leave both empty and we'll create a branch called MAIN.",
-    fields: [
-      {
-        name: "branchName",
-        label: "Branch name",
-        placeholder: "Addis Office",
-        validate: (value: string, all: Record<string, string>) => (!value.trim() && all.branchCode?.trim() ? "Enter the branch name, or clear the code." : undefined),
-      },
-      {
-        name: "branchCode",
-        label: "Branch code",
-        placeholder: "ADDIS",
-        hint: "Letters, numbers and underscores.",
-        validate: (value: string, all: Record<string, string>) => {
-          const v = value.trim();
-          if (!v) return all.branchName?.trim() ? "Enter the branch code, or clear the name." : undefined;
-          return /^[A-Za-z0-9_]+$/.test(v) ? undefined : "Use letters, numbers and underscores only.";
-        },
-      },
-    ],
-  },
-];
+
+
 
 /** Change the address without rebuilding the page (so a record page loads once). */
 function go(path: string) {
   window.history.pushState(null, "", path);
 }
 
-function useOrganizations() {
-  return useSyncExternalStore(organizationsService.subscribe, organizationsService.getSnapshot, organizationsService.getSnapshot);
-}
-
 /** The Branches tab of an organization's page. It loads with the page, so it has its own loading and error states. */
 function OrganizationBranches({ organizationId }: { organizationId: string }) {
-  const [state, setState] = useState<{ status: "loading" | "ready" | "error"; branches: Branch[]; error?: unknown }>({ status: "loading", branches: [] });
-
-  useEffect(() => {
-    const controller = new AbortController();
-    listBranches(organizationId, controller.signal)
-      .then((branches) => setState({ status: "ready", branches }))
-      .catch((error) => {
-        if (!controller.signal.aborted) setState({ status: "error", branches: [], error });
-      });
-    return () => controller.abort();
-  }, [organizationId]);
+  const query = useQuery({
+    queryKey: branchQk.everyone(organizationId),
+    queryFn: ({ signal }) => listAllBranches(organizationId, signal),
+  });
+  const state = { status: query.isPending ? "loading" : query.isError ? "error" : "ready", branches: query.data ?? [], error: query.error } as const;
 
   if (state.status === "loading") {
     return (
@@ -165,39 +113,120 @@ function OrganizationBranches({ organizationId }: { organizationId: string }) {
 
 function OrganizationsView() {
   const pathname = usePathname();
-  const { organizations, status, error } = useOrganizations();
-  const user = useStorageStore(staffSession);
-  const { can } = usePermissions();
+  const queryClient = useQueryClient();
+  const { can } = useModuleAccess();
+  const { isPlatform, organizationId: ownOrganizationId } = useOrganization();
   const location = parseRecordPath(BASE, pathname);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const params = { page, pageSize };
 
-  // A platform role is not tied to an organization and sees them all. A tenant role sees only its own.
-  const scope = user === undefined || user === null ? null : user.organizationId || "all";
-  const isPlatform = scope === "all";
+  // A platform role is not tied to an organization and sees them all, a page at a time. A tenant role sees only its own.
+  const list = useQuery({
+    queryKey: organizationQk.list(params),
+    queryFn: ({ signal }) => listOrganizations(params, signal),
+    placeholderData: keepPreviousData,
+    enabled: isPlatform,
+  });
+  const own = useQuery({
+    queryKey: organizationQk.detail(ownOrganizationId ?? ""),
+    queryFn: ({ signal }) => getOrganization(ownOrganizationId!, signal),
+    enabled: !isPlatform && Boolean(ownOrganizationId),
+  });
 
+  // A record opened by link may not be on the current page: load it on its own.
+  const openId = isPlatform && (location.mode === "page" || location.mode === "edit") ? String(location.id) : null;
+  const onPage = list.data?.data.some((o) => o.id === openId) ?? false;
+  const detail = useQuery({
+    queryKey: organizationQk.detail(openId ?? ""),
+    queryFn: ({ signal }) => getOrganization(openId!, signal),
+    enabled: Boolean(openId) && list.isSuccess && !onPage,
+  });
+  const rows = isPlatform ? (list.data?.data ?? []) : own.data ? [own.data] : [];
+  const organizations = detail.data && !onPage ? [...rows, detail.data] : rows;
+  const source = isPlatform ? list : own;
+
+  // Staff of one organization can only read their own: open its page rather than a list of one.
   useEffect(() => {
-    if (scope) void organizationsService.load(scope);
-  }, [scope]);
+    if (!isPlatform && ownOrganizationId && location.mode === "list") window.history.replaceState(null, "", `${BASE}/${ownOrganizationId}`);
+  }, [isPlatform, ownOrganizationId, location.mode]);
 
-  if (status === "error") {
+  /** After any change: every organization query is refetched (the platform picker too). */
+  const saved = () => void queryClient.invalidateQueries({ queryKey: organizationQk.all() });
+
+  const create = useMutation({
+    mutationFn: async (input: OrganizationInput) => (await createOrganization(input)).organization,
+    onSuccess: saved,
+  });
+  const update = useMutation({
+    mutationFn: ({ id, changes }: { id: string; changes: Parameters<typeof updateOrganizationDefaults>[1] }) => updateOrganizationDefaults(id, changes),
+    onSuccess: saved,
+  });
+
+  if (source.isError) {
     return (
       <EmptyState
         size="lg"
         tone="danger"
         title="We couldn't load the organizations"
-        description={describeApiError(error, "organization")}
-        actions={<Button onClick={() => scope && void organizationsService.load(scope, { force: true })}>Try again</Button>}
+        description={describeApiError(source.error, "organization")}
+        actions={<Button onClick={() => void source.refetch()}>Try again</Button>}
       />
     );
   }
 
-  const canCreate = isPlatform && can("ORGANIZATIONS", "create");
-  const loading = status === "idle" || status === "loading";
+  const canUpdate = can("update", MODULE);
+  const newOrganization = (label: string, icon = false) =>
+    isPlatform ? (
+      <Can I="create" a={MODULE}>
+        <Button onClick={() => go(`${BASE}/new`)}>
+          {icon && <PlusIcon className="size-4" />}
+          {label}
+        </Button>
+      </Can>
+    ) : undefined;
+
+  // Create and edit are their own full pages.
+  if (location.mode === "create" || location.mode === "edit") {
+    const existing = location.mode === "edit" ? organizations.find((o) => o.id === String(location.id)) : undefined;
+    if (location.mode === "edit" && !existing) {
+      if (source.isPending || detail.isPending) return null;
+      return <EmptyState size="lg" title="This organization doesn't exist" description="It may have been removed. Go back to the list." />;
+    }
+    return (
+      <OrganizationForm
+        key={existing?.id ?? "new"}
+        organization={existing}
+        onCancel={() => go(existing ? `${BASE}/${existing.id}` : BASE)}
+        onCreate={async (input) => {
+          try {
+            const created = await create.mutateAsync(input);
+            toast.success("Organization created");
+            go(`${BASE}/${created.id}`);
+          } catch (e) {
+            throw new Error(describeApiError(e, "organization"));
+          }
+        }}
+        onSaveDefaults={async (changes) => {
+          try {
+            // Only the defaults can change. Changing the timezone never moves existing events.
+            if (Object.keys(changes).length) await update.mutateAsync({ id: existing!.id, changes });
+            toast.success("Changes saved");
+            go(`${BASE}/${existing!.id}`);
+          } catch (e) {
+            throw new Error(describeApiError(e, "organization"));
+          }
+        }}
+      />
+    );
+  }
 
   return (
     <RecordWorkspace
       fit
       inlineToasts={false}
-      className="h-[calc(100vh-270px)] min-h-[520px]"
+      // A short list sizes to its rows; the record page, panel and forms keep a tall stage.
+      className={location.mode === "list" ? undefined : "h-[calc(100vh-270px)] min-h-[520px]"}
       records={organizations}
       getId={(o) => o.id}
       noun="organization"
@@ -208,10 +237,22 @@ function OrganizationsView() {
       list={({ onRowClick, activeRowId, highlightIds, onVisibleRowsChange }) => (
         <Table
           columns={columns}
-          data={organizations}
+          data={rows}
           getRowId={(r) => r.id}
           title="Organizations"
-          loading={loading}
+          loading={source.isPending}
+          // Pages come from the server. The API can't search organizations yet, so the table doesn't offer a
+          // search that would only look at the page on screen.
+          page={page}
+          onPageChange={setPage}
+          rowsPerPage={pageSize}
+          onRowsPerPageChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+          totalRows={isPlatform ? (list.data?.totalItems ?? 0) : rows.length}
+          searchable={false}
+          filters={false}
           onRowClick={onRowClick}
           activeRowId={activeRowId}
           highlightIds={highlightIds}
@@ -221,22 +262,16 @@ function OrganizationsView() {
               icon={<BuildingIcon />}
               title="No organizations yet"
               description="Create one for each company that runs events."
-              actions={canCreate ? <Button onClick={() => go(`${BASE}/new`)}>New organization</Button> : undefined}
+              actions={newOrganization("New organization")}
             />
           }
-          toolbarActions={
-            canCreate ? (
-              <Button onClick={() => go(`${BASE}/new`)}>
-                <PlusIcon className="size-4" />
-                New organization
-              </Button>
-            ) : undefined
-          }
+          toolbarActions={newOrganization("New organization", true)}
           className="rounded-none border-none shadow-none"
         />
       )}
-      // Editing is not offered yet: the API can create and read organizations, not change them.
-      identity={(o) => ({
+      // Only the organization's defaults can change (the API has no rename or switch-off yet).
+      identity={(o, api) => ({
+        primary: canUpdate ? { label: "Edit defaults", onClick: () => api.edit(o) } : undefined,
         avatar: <Avatar initials={initialsOf(o.name)} size={48} />,
         name: o.name,
         status: <StatusPill kind="account" status={o.is_active ? "active" : "inactive"} />,
@@ -247,10 +282,10 @@ function OrganizationsView() {
         ),
       })}
       stats={(o) => [
-        { label: "Slug", value: o.slug },
-        { label: "Status", value: o.is_active ? "Active" : "Inactive" },
-        { label: "Created", value: formatDate(o.created_at, { year: false }) },
-        { label: "Last changed", value: formatDate(o.updated_at, { year: false }) },
+        { label: "Country", value: o.country },
+        { label: "Timezone", value: o.timezone.replace(/_/g, " ") },
+        { label: "Currency", value: o.default_currency },
+        { label: "Branches", value: o.has_branches ? "On" : "Off" },
       ]}
       panel={(o) => (
         <div>
@@ -272,18 +307,34 @@ function OrganizationsView() {
         ],
         content: (o, tab) =>
           tab === "branches" ? (
-            <OrganizationBranches organizationId={o.id} />
+            o.has_branches ? (
+              <OrganizationBranches organizationId={o.id} />
+            ) : (
+              <EmptyState size="sm" icon={<BuildingIcon />} title="Branches are off" description="This organization runs everything as one. Adding a branch turns them on." />
+            )
           ) : (
-            <div>
-              <RecordHeading>Details</RecordHeading>
-              <RecordKv
-                items={[
-                  { label: "Name", value: o.name },
-                  { label: "Slug", value: o.slug },
-                  { label: "Description", value: o.description ?? "None" },
-                  { label: "Last changed", value: formatDate(o.updated_at) },
-                ]}
-              />
+            <div className="flex flex-col gap-4">
+              <div>
+                <RecordHeading>Details</RecordHeading>
+                <RecordKv
+                  items={[
+                    { label: "Name", value: o.name },
+                    { label: "Slug", value: o.slug },
+                    { label: "Description", value: o.description ?? "None" },
+                    { label: "Last changed", value: formatDate(o.updated_at) },
+                  ]}
+                />
+              </div>
+              <div>
+                <RecordHeading>Defaults for new events</RecordHeading>
+                <RecordKv
+                  items={[
+                    { label: "Country", value: o.country },
+                    { label: "Timezone", value: o.timezone.replace(/_/g, " ") },
+                    { label: "Currency", value: o.default_currency },
+                  ]}
+                />
+              </div>
             </div>
           ),
         rail: (o) => (
@@ -300,27 +351,13 @@ function OrganizationsView() {
         ),
       }}
       form={{
-        sections,
-        toValues: (o) => ({ name: o.name, slug: o.slug, description: o.description ?? "" }),
-        onSave: async (values, existing) => {
-          // The API has no way to change an organization yet; the edit route exists only because the workspace has one.
-          if (existing) throw new Error("Organizations can't be changed yet.");
-          const branchName = values.branchName?.trim();
-          const branchCode = values.branchCode?.trim();
-          try {
-            return await organizationsService.create({
-              name: values.name!.trim(),
-              slug: values.slug?.trim() || undefined,
-              description: values.description?.trim() || null,
-              defaultBranch: branchName && branchCode ? { name: branchName, code: branchCode } : undefined,
-            });
-          } catch (e) {
-            // The form stays open and shows this message.
-            throw new Error(describeApiError(e, "organization"));
-          }
+        // Not used: create and edit are their own full pages (see the form above). The workspace still needs a form prop.
+        sections: [],
+        toValues: () => ({}),
+        onSave: (_values, existing) => {
+          if (existing) return existing;
+          throw new Error("Use the form page.");
         },
-        createdMessage: "Organization created",
-        savedMessage: "Changes saved",
       }}
     />
   );

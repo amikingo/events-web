@@ -694,9 +694,11 @@ Every file listed here is a ready, guideline-exact component: pass data and prop
 
 `components/ui/icons.tsx` · server-safe
 
+Every icon below is a **Lucide** icon (`lucide-react`) under the name the components use, at the guideline's stroke weight (2; 2.5 for pager arrows and steppers; 3 for checkbox and chip marks). A CSS size class sizes it; unsized it shows at 24px. For an icon not listed, import it from `lucide-react`. The line references below point at where the guideline uses each one.
+
 - **`ViewIcon`** — `.tbl-actions` "View details" button — line ~4483.
 - **`EditIcon`** — `.tbl-actions` "Edit" button — line ~6822.
-- **`MoreIcon`** — The "more" button's three solid dots — note `fill`, not `stroke`, per the guideline's literal markup.
+- **`MoreIcon`** — The "more" button's three dots (Lucide `Ellipsis`).
 - **`SortIcon`** — `th.sortable .sort-ic` — line ~4341.
 - **`ChevIcon`** — `.select-trigger .chev` — line ~4354.
 - **`PagerPrevIcon`** — Pager "Previous" arrow — line ~6828.

@@ -23,7 +23,7 @@ Before building any screen: pick components by case in `.cheche-ui/choosing.md` 
 10. **Formats** come from `lib/format.ts`: `formatTime` (12-hour), `formatCurrency` (`2,550 ETB`), `formatDate` (Gregorian), `maskPhone`. Phone input is `PhoneInput`; money is `AmountInput`.
 11. **Copy follows the guideline's voice:** plain words, sentence case, one sentence of why, no "Oops", no exclamation marks, buttons name the action ("Create customer", not "Submit").
 12. **Dark mode is built in.** Never hand-roll a theme toggle or `dark:` styles: tokens switch automatically, and the avatar menu in `Topbar` has the Light / Dark / System switch (`ThemeSwitch` for a settings page).
-12b. **Icons** come from `components/ui/icons.tsx`. Do not add an icon library.
+12b. **Icons are Lucide** (`lucide-react`), everywhere, as in bookings_web. `components/ui/icons.tsx` keeps its names (`PagerNextIcon`, `CheckIcon`…) and draws each with Lucide at the guideline's stroke weight, so use those names where one exists; for anything else import from `lucide-react` directly. Navigation icons come from the backend's icon name in `/me` (`lib/rbac/module-sidebar.ts`). Add no other icon library and don't hand-draw icons in `<svg>`.
 13. **Client/server.** Components that use state start with `"use client"` already; pages that use them with hooks/handlers must be client components too.
 14. **Don't edit `components/ui/` to fit one screen.** If a component can't do what you need, say so and ask; a change there affects every project that shares the library.
 

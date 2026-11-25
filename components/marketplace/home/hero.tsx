@@ -12,9 +12,9 @@ import { landingType } from "./landing-type";
 function Poster({ event, className }: { event: EventSummary; className?: string }) {
   return (
     <div className={cn("relative aspect-[3/4] w-full flex-none overflow-hidden rounded-lg ring-1 ring-border", className)}>
-      <EventCover seed={event.id} pattern={event.coverPattern} category={event.categoryId} />
+      <EventCover seed={event.id} pattern={event.coverPattern} category={event.categoryId} src={event.coverUrl} />
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-[color-mix(in_srgb,var(--color-paper-ink)_90%,transparent)] to-transparent px-3 pb-3 pt-10">
-        <span className="block type-label text-white/70">{formatEventDate(event.startsAt, { weekday: true, year: false })}</span>
+        <span className="block type-label text-white/70">{formatEventDate(event.startsAt, { weekday: true, year: false, timeZone: event.timezone })}</span>
         <span className="block type-body-sm font-semibold text-white line-clamp-2">{event.title}</span>
       </div>
     </div>

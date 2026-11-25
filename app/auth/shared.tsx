@@ -21,7 +21,7 @@ export function safeNext(next: string | undefined, fallback = "/my-tickets"): st
 
 /** Where a signed-in person goes: staff only follow a `next` under /admin, attendees never land there. */
 export function landing(kind: "staff" | "attendee", next: string | undefined): string {
-  const home = kind === "staff" ? "/admin/dashboard" : "/my-tickets";
+  const home = kind === "staff" ? "/admin" : "/my-tickets";
   const target = safeNext(next, home);
   return target.startsWith("/admin") === (kind === "staff") ? target : home;
 }

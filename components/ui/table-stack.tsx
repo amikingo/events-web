@@ -38,6 +38,8 @@ export interface StackRowsProps<T> {
   activeRowId?: string | number;
   highlightIds?: Set<string | number>;
   hasMore: boolean;
+  /** The next page is being fetched: the "Loading more…" line shows only then; otherwise an invisible marker waits for the end of the list. */
+  loadingMore?: boolean;
   onEndReached: () => void;
 }
 
@@ -45,7 +47,7 @@ export interface StackRowsProps<T> {
  * `.stack-rows` — the guideline's phone layout: each row becomes a compact card with its title and status on top and
  * key–value lines below; more rows load as you scroll (infinite scroll, not numbered pages).
  */
-export function StackRows<T>({ rows, columns, getRowId, selectable, isSelected, onToggle, renderActions, expandable, onRowClick, activeRowId, highlightIds, hasMore, onEndReached }: StackRowsProps<T>) {
+export function StackRows<T>({ rows, columns, getRowId, selectable, isSelected, onToggle, renderActions, expandable, onRowClick, activeRowId, highlightIds, hasMore, loadingMore = false, onEndReached }: StackRowsProps<T>) {
   const [openId, setOpenId] = useState<string | number | null>(null);
   const title = columns.find((c) => c.mobile === "title") ?? columns.find((c) => c.primary) ?? columns[0];
   const badge = columns.find((c) => c.mobile === "badge");
@@ -57,13 +59,14 @@ export function StackRows<T>({ rows, columns, getRowId, selectable, isSelected, 
   endRef.current = onEndReached;
   useEffect(() => {
     const el = sentinel.current;
-    if (!el || !hasMore) return;
+    // Not while a page is already coming; when it lands the marker is observed again, so a short list keeps filling.
+    if (!el || !hasMore || loadingMore) return;
     const io = new IntersectionObserver((entries) => {
       if (entries.some((e) => e.isIntersecting)) endRef.current();
     });
     io.observe(el);
     return () => io.disconnect();
-  }, [hasMore, rows.length]);
+  }, [hasMore, loadingMore, rows.length]);
 
   return (
     <div>
@@ -136,9 +139,7 @@ export function StackRows<T>({ rows, columns, getRowId, selectable, isSelected, 
           );
         })}
       </div>
-      {hasMore && (
-        <LoadMore ref={sentinel} />
-      )}
+      {hasMore && (loadingMore ? <LoadMore ref={sentinel} /> : <div ref={sentinel} aria-hidden="true" className="h-12" />)}
     </div>
   );
 }

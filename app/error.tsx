@@ -31,7 +31,7 @@ export default function GlobalError({
             <>
               <Button onClick={() => reset()}>Try again</Button>
               <Button asChild variant="secondary">
-                <a href="/admin/dashboard">Back to dashboard</a>
+                <a href="/admin">Back to dashboard</a>
               </Button>
             </>
           }

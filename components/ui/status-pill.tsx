@@ -59,6 +59,31 @@ export const statusVocabulary = {
     inactive: ["Inactive", "neutral"],
     suspended: ["Suspended", "danger"],
   },
+  /** An event's life: drafted, published (open to view), live while it runs, then closed or cancelled. */
+  event: {
+    draft: ["Draft", "warning"],
+    published: ["Published", "success"],
+    live: ["Live", "info"],
+    closed: ["Closed", "neutral"],
+    cancelled: ["Cancelled", "danger"],
+  },
+  /** Whether a published event is taking sign-ups right now (the public site). */
+  signup: {
+    open: ["Registration open", "success"],
+    closed: ["Registration closed", "neutral"],
+  },
+  /** A guest's place at an event. */
+  registration: {
+    confirmed: ["Confirmed", "success"],
+    cancelled: ["Cancelled", "danger"],
+  },
+  /** A message (an SMS confirmation) on its way to a guest. */
+  message: {
+    pending: ["Sending", "warning"],
+    sent: ["SMS sent", "success"],
+    failed: ["SMS failed", "danger"],
+    skipped: ["SMS skipped", "neutral"],
+  },
   /** A request waiting on someone: approvals, KYC reviews, refund requests. */
   approval: {
     pending: ["Needs a decision", "warning"],

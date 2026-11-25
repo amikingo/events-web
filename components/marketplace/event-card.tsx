@@ -26,8 +26,8 @@ export function whereLabel(e: Pick<EventSummary, "format" | "venueName" | "cityN
   return e.format === "hybrid" ? `${place} · also online` : place;
 }
 
-export function DateChip({ iso, className }: { iso: string; className?: string }) {
-  const d = dateChip(iso);
+export function DateChip({ iso, timeZone, className }: { iso: string; timeZone?: string; className?: string }) {
+  const d = dateChip(iso, timeZone);
   return (
     <span className={cn("flex w-12 flex-col items-center rounded-sm bg-surface py-1 text-text shadow", className)} aria-hidden="true">
       <span className="type-label text-accent-text">{d.month}</span>
@@ -53,14 +53,14 @@ export function EventCard({ event, now, layout = "vertical", rank, headingLevel 
   const nowMs = Date.parse(now);
   const ended = event.lifecycle === "cancelled" || eventPhase(event, nowMs) === "ended";
   const Heading = headingLevel;
-  const when = `${formatEventDate(event.startsAt, { weekday: true, year: false })} · ${formatEventTime(event.startsAt)}`;
+  const when = `${formatEventDate(event.startsAt, { weekday: true, year: false, timeZone: event.timezone })} · ${formatEventTime(event.startsAt, event.timezone)}`;
   const online = event.format === "online";
 
   if (layout === "horizontal") {
     return (
       <article className={cn("group relative flex min-w-0 gap-3.5 rounded-md p-1.5 transition-colors hover:bg-surface-2", className)}>
         <div className="relative aspect-square w-[88px] flex-none overflow-hidden rounded-sm sm:w-[104px]">
-          <EventCover seed={event.id} pattern={event.coverPattern} category={event.categoryId} muted={ended} />
+          <EventCover seed={event.id} pattern={event.coverPattern} category={event.categoryId} src={event.coverUrl} muted={ended} />
         </div>
         <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
           <p className="type-label text-accent-text">{when}</p>
@@ -86,9 +86,9 @@ export function EventCard({ event, now, layout = "vertical", rank, headingLevel 
     <article className={cn("group relative flex min-w-0 flex-col", className)}>
       <div className="relative aspect-[3/2] overflow-hidden rounded-md bg-surface-2">
         <div className="size-full transition-transform duration-(--motion-slow) ease-(--ease-slow) group-hover:scale-[1.04] motion-reduce:transition-none">
-          <EventCover seed={event.id} pattern={event.coverPattern} category={event.categoryId} muted={ended} />
+          <EventCover seed={event.id} pattern={event.coverPattern} category={event.categoryId} src={event.coverUrl} muted={ended} />
         </div>
-        <DateChip iso={event.startsAt} className="absolute left-3 top-3" />
+        <DateChip iso={event.startsAt} timeZone={event.timezone} className="absolute left-3 top-3" />
         {rank !== undefined && (
           <span className="absolute bottom-2 right-3 type-h1 text-white [text-shadow:0_1px_8px_var(--color-overlay)]" aria-hidden="true">
             {String(rank).padStart(2, "0")}
@@ -98,7 +98,7 @@ export function EventCard({ event, now, layout = "vertical", rank, headingLevel 
       <div className="flex flex-1 flex-col gap-1 pt-3">
         <p className="m-0 type-label text-accent-text">
           {event.categoryName}
-          <span className="text-text-faint"> · {formatEventTime(event.startsAt)}</span>
+          <span className="text-text-faint"> · {formatEventTime(event.startsAt, event.timezone)}</span>
         </p>
         <Heading className="m-0 type-h3 text-text line-clamp-2 group-hover:text-accent-text">
           <Link href={`/events/${event.slug}`} className="rounded-sm outline-offset-4 after:absolute after:inset-0 after:content-['']">

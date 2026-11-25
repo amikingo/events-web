@@ -12,7 +12,7 @@ type Palette = { base: string; a: string; b: string; c: string };
 
 const v = (name: string) => `var(--color-${name})`;
 
-const PALETTES: Record<CategoryId, Palette> = {
+const PALETTES: Record<string, Palette> = {
   music: { base: v("accent-deep"), a: v("accent-fill"), b: v("accent-light"), c: v("paper-ink") },
   business: { base: v("paper-ink"), a: v("neutral-700"), b: v("accent-fill"), c: v("neutral-300") },
   tech: { base: v("cbe"), a: v("accent-50"), b: v("accent-80"), c: v("paper-ink") },
@@ -162,17 +162,34 @@ function Pattern({ pattern, p, seed }: { pattern: CoverPattern; p: Palette; seed
   }
 }
 
+/** The palette of a known category, or one picked by a stable hash of the id (categories are free text now). */
+const PALETTE_NAMES = Object.keys(PALETTES);
+function paletteFor(category: CategoryId): Palette {
+  const known = PALETTES[category];
+  if (known) return known;
+  let h = 0;
+  for (let i = 0; i < category.length; i++) h = (h * 31 + category.charCodeAt(i)) >>> 0;
+  return PALETTES[PALETTE_NAMES[h % PALETTE_NAMES.length]!]!;
+}
+
 export interface EventCoverProps {
   seed: string;
   pattern: CoverPattern;
   category: CategoryId;
+  /** The organizer's uploaded picture. When given it is shown instead of the generated artwork. */
+  src?: string;
   className?: string;
   /** Muted (greyscale) — for past or cancelled events. */
   muted?: boolean;
 }
 
-export function EventCover({ seed, pattern, category, className, muted = false }: EventCoverProps) {
-  const p = PALETTES[category];
+export function EventCover({ seed, pattern, category, src, className, muted = false }: EventCoverProps) {
+  if (src) {
+    // A plain <img>: the file is served by the API, so next/image's optimizer can't reach it. Decorative: the title sits next to it.
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={src} alt="" loading="lazy" className={cn("block size-full object-cover", muted && "grayscale-[0.85]", className)} />;
+  }
+  const p = paletteFor(category);
   return (
     <svg
       viewBox={`0 0 ${W} ${H}`}
