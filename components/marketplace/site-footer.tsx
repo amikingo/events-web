@@ -2,6 +2,7 @@ import Link from "next/link";
 import { useId } from "react";
 import { MARKETPLACE } from "../../lib/marketplace/config";
 import { exploreHref } from "../../lib/marketplace/query";
+import { CATEGORIES } from "../../mocks/marketplace/reference";
 import { Logo } from "../ui/logo";
 import { ThemeSwitch } from "../ui/theme-switch";
 import { Container } from "./section";
@@ -70,8 +71,10 @@ export function SiteFooter() {
         { href: "/events", label: "All events" },
         { href: exploreHref({ date: "weekend" }), label: "This weekend" },
         { href: exploreHref({ price: "free" }), label: "Free events" },
+        { href: exploreHref({ city: "online" }), label: "Online events" },
       ],
     },
+    { title: "Categories", links: CATEGORIES.map((c) => ({ href: exploreHref({ category: c.id }), label: c.name })) },
     {
       title: "Your account",
       links: [
@@ -85,10 +88,10 @@ export function SiteFooter() {
 
   return (
     <footer className="mt-12 border-t border-border bg-surface">
-      <Container className="grid gap-10 py-12 md:grid-cols-[1.3fr_repeat(2,1fr)]">
+      <Container className="grid gap-10 py-12 md:grid-cols-[1.3fr_repeat(3,1fr)]">
         <div className="flex flex-col gap-3">
           <Logo variant="wordmark" width={110} />
-          <p className="m-0 max-w-[280px] type-body-sm text-text-soft">{MARKETPLACE.tagline}. Free registration for conferences, workshops, concerts and more across Ethiopia.</p>
+          <p className="m-0 max-w-[280px] type-body-sm text-text-soft">{MARKETPLACE.tagline}. Tickets for concerts, conferences, festivals and more across Ethiopia.</p>
           <div className="mt-1 flex flex-col gap-1 type-body-sm text-text-soft">
             <span className="type-label text-text-faint">Need help?</span>
             <a className={linkCls} href={`mailto:${MARKETPLACE.supportEmail}`}>

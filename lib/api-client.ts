@@ -14,6 +14,12 @@
 import type { StaffToken } from "@/lib/auth-token";
 
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5010").replace(/\/$/, "");
+/**
+ * Where server-rendered pages reach the API. Inside a container the public address can be unreachable, so the
+ * server may use an internal one (API_INTERNAL_URL); browsers always use API_URL. Unset locally: same as API_URL.-43
+ */
+const SERVER_API_URL = (process.env.API_INTERNAL_URL ?? API_URL).replace(/\/$/, "");
+const requestBase = () => (typeof window === "undefined" ? SERVER_API_URL : API_URL);
 
 /** No token, ever: the visitor site's catalog and event pages. */
 const PUBLIC_PATH_PREFIXES = ["/v1/public/"];
@@ -117,7 +123,7 @@ async function send<T>(path: string, { method = "GET", body, headers: extra, sig
 
   let res: Response;
   try {
-    res = await fetch(`${API_URL}${path}`, {
+    res = await fetch(`${requestBase()}${path}`, {
       method,
       headers,
       body: body === undefined ? undefined : isForm ? (body as FormData) : JSON.stringify(body),

@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: { default: `${MARKETPLACE.name} · ${MARKETPLACE.tagline}`, template: `%s · ${MARKETPLACE.name}` },
-  description: "Discover concerts, conferences, festivals and workshops across Ethiopia. Register free in a minute; your code comes by SMS.",
+  description: "Discover concerts, conferences, festivals and workshops across Ethiopia. Clear prices, instant tickets.",
 };
 
 /** The public attendee site (`/`, `/events`, `/my-tickets`, `/account`, …): header, page, footer. The `(home)` folder is a route group, so it adds nothing to the address. The admin area has its own shell under `app/admin`. */

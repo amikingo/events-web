@@ -9,6 +9,7 @@ import { PinnedTrack, PinnedTrackItem } from "../../components/marketplace/home/
 import { Reveal } from "../../components/marketplace/home/reveal";
 import { ScrollZoomGallery } from "../../components/marketplace/home/scroll-zoom-gallery";
 import { SpotlightCarousel } from "../../components/marketplace/home/spotlight-carousel";
+import { WhyBookReveal } from "../../components/marketplace/home/why-book-reveal";
 import { EventCard, whereLabel } from "../../components/marketplace/event-card";
 import { NearbyEvents } from "../../components/marketplace/nearby-events";
 import { NewsletterSignup } from "../../components/marketplace/newsletter-signup";
@@ -67,6 +68,7 @@ export default async function HomePage() {
     { value: "today", label: "Today", count: picks.today.length, href: exploreHref({ date: "today" }), content: <PickPanel events={picks.today} now={now} empty="Nothing on today" /> },
     { value: "weekend", label: "Weekend", count: picks.weekend.length, href: exploreHref({ date: "weekend" }), content: <PickPanel events={picks.weekend} now={now} empty="Nothing on this weekend" /> },
     { value: "free", label: "Free", count: picks.free.length, href: exploreHref({ price: "free" }), content: <PickPanel events={picks.free} now={now} empty="No free events right now" /> },
+    { value: "online", label: "Online", count: picks.online.length, href: exploreHref({ city: "online" }), content: <PickPanel events={picks.online} now={now} empty="No online events right now" /> },
   ];
 
   return (
@@ -109,7 +111,7 @@ export default async function HomePage() {
       </LandingSection>
 
       {/* 5. Upcoming */}
-      <LandingSection id="upcoming" eyebrow="Open for registration" title="Coming up" description="The next events you can still register for." href={exploreHref({ sort: "upcoming" })} className="pt-0 sm:pt-0">
+      <LandingSection id="upcoming" eyebrow="On sale now" title="Coming up" description="The next events you can still get tickets for." href={exploreHref({ sort: "upcoming" })} className="pt-0 sm:pt-0">
         <EventGrid events={home.upcoming.slice(0, 6)} now={now} mobileLimit={3} />
       </LandingSection>
 
@@ -119,6 +121,7 @@ export default async function HomePage() {
       </LandingSection>
 
       {/* Why book here: a dark circle opens, then the promises light up */}
+      <WhyBookReveal />
 
       {/* 9. Organizers */}
       <LandingSection id="organizers" eyebrow="Organizers" title="The people behind the events" description="Follow the organizers you love and never miss their next one." className="pt-4 sm:pt-8">
