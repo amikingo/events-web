@@ -12,6 +12,7 @@ import { PlusIcon, UserIcon } from "@/components/ui/icons";
 import { Pill } from "@/components/ui/pill";
 import { RecordHeading, RecordKv, RecordRailCard } from "@/components/ui/record-view";
 import { RecordWorkspace, parseRecordPath, recordPath } from "@/components/ui/record-workspace";
+import { Select } from "@/components/ui/select";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Table } from "@/components/ui/table";
 import type { ColumnDef } from "@/components/ui/table";
@@ -19,7 +20,7 @@ import { toast } from "@/components/ui/toaster";
 import { listAllBranches } from "@/lib/api/branches";
 import { describeApiError } from "@/lib/api/errors";
 import { listRoles } from "@/lib/api/roles";
-import { changeStaffAssignmentWithMessage, listStaffAssignments, setStaffActive } from "@/lib/api/staff";
+import { changeStaffAssignmentWithMessage, getStaffAssignment, listStaffAssignments, setStaffActive } from "@/lib/api/staff";
 import type { StaffAssignment } from "@/lib/api/staff";
 import { MODULE_CODES } from "@/lib/constants/modules";
 import { useOrganization } from "@/lib/organization-context";
@@ -30,6 +31,7 @@ import { StaffOverridesCard } from "./staff-overrides-card";
 
 const BASE = "/admin/access/assignments";
 const MODULE = MODULE_CODES.USER_ROLES;
+const ALL_FILTER = "all";
 
 const nameOf = (a: StaffAssignment) => (a.profile ? [a.profile.firstname, a.profile.middlename, a.profile.lastname].filter(Boolean).join(" ") : "") || "Name unavailable";
 const initialsOf = (a: StaffAssignment) => nameOf(a).split(/\s+/).filter(Boolean).map((w) => w[0]).join("").slice(0, 2).toUpperCase() || "?";
@@ -70,12 +72,26 @@ function StaffView({ organizationId }: { organizationId: string }) {
   const location = parseRecordPath(BASE, pathname);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const params = { page, pageSize };
+  const [roleFilter, setRoleFilter] = useState(ALL_FILTER);
+  const [branchFilter, setBranchFilter] = useState(ALL_FILTER);
+  const params = {
+    page,
+    pageSize,
+    ...(roleFilter !== ALL_FILTER ? { roleId: roleFilter } : {}),
+    ...(hasBranches && branchFilter !== ALL_FILTER ? { branchId: branchFilter } : {}),
+  };
 
+  const targetId = location.mode === "page" || location.mode === "edit" ? String(location.id) : "";
   const list = useQuery({ queryKey: staffQk.list(organizationId, params), queryFn: ({ signal }) => listStaffAssignments(organizationId, params, signal), placeholderData: keepPreviousData });
+  const detail = useQuery({
+    queryKey: staffQk.detail(organizationId, targetId),
+    queryFn: ({ signal }) => getStaffAssignment(organizationId, targetId, signal),
+    enabled: Boolean(targetId),
+  });
   const roles = useQuery({ queryKey: roleQk.list(organizationId), queryFn: ({ signal }) => listRoles(organizationId, signal) });
   const branches = useQuery({ queryKey: branchQk.everyone(organizationId), queryFn: ({ signal }) => listAllBranches(organizationId, signal), enabled: hasBranches });
   const rows = list.data?.data ?? [];
+  const workspaceRecords = detail.data && !rows.some((r) => r.id === detail.data.id) ? [detail.data, ...rows] : rows;
 
   const saved = () => void queryClient.invalidateQueries({ queryKey: staffQk.all(organizationId) });
   const change = useMutation({
@@ -122,10 +138,18 @@ function StaffView({ organizationId }: { organizationId: string }) {
 
   // Changing a role is its own full page.
   if (location.mode === "edit") {
-    const existing = rows.find((a) => a.id === String(location.id));
+    const existing = detail.data ?? rows.find((a) => a.id === targetId);
     if (!existing) {
-      if (list.isPending) return null;
-      return <EmptyState size="lg" title="This person isn't in the list" description="They may be on another page, or the assignment was removed. Go back to the list." actions={<Button onClick={() => go(BASE)}>Back to staff</Button>} />;
+      if (detail.isPending || list.isPending) return null;
+      return (
+        <EmptyState
+          size="lg"
+          tone={detail.isError ? "danger" : undefined}
+          title={detail.isError ? "We couldn't load this assignment" : "This person isn't in the list"}
+          description={detail.isError ? describeApiError(detail.error, "person") : "They may be on another page, or the assignment was removed. Go back to the list."}
+          actions={<Button onClick={() => go(BASE)}>Back to staff</Button>}
+        />
+      );
     }
     return (
       <ChangeRoleForm
@@ -136,46 +160,85 @@ function StaffView({ organizationId }: { organizationId: string }) {
         branches={hasBranches ? (branches.data ?? []) : undefined}
         onCancel={() => go(`${BASE}/${existing.id}`)}
         onSubmit={async (changes) => {
-          try {
-            if (Object.keys(changes).length) {
-              const { assignment, message } = await change.mutateAsync({ id: existing.id, changes });
-              go(`${BASE}/${existing.id}`);
-              if ((assignment.override_count ?? 0) > 0 && assignment.role_changed !== false) {
-                toast.warning(
-                  message || `Role changed. This person still has ${assignment.override_count} permission overrides: review them.`,
-                  {
-                    actions: [
-                      {
-                        label: "Review access",
-                        onClick: () => {
-                          requestAnimationFrame(() => {
-                            document.getElementById("access-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
-                          });
-                        },
+          if (Object.keys(changes).length) {
+            const { assignment, message } = await change.mutateAsync({ id: existing.id, changes });
+            go(`${BASE}/${existing.id}`);
+            if ((assignment.override_count ?? 0) > 0 && assignment.role_changed !== false) {
+              toast.warning(
+                message || `Role changed. This person still has ${assignment.override_count} permission overrides: review them.`,
+                {
+                  actions: [
+                    {
+                      label: "Review access",
+                      onClick: () => {
+                        requestAnimationFrame(() => {
+                          document.getElementById("access-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                        });
                       },
-                    ],
-                  },
-                );
-              } else {
-                toast.success("Role changed", { body: "It applies on their next request." });
-              }
+                    },
+                  ],
+                },
+              );
             } else {
-              go(`${BASE}/${existing.id}`);
+              toast.success("Role changed", { body: "It applies on their next request." });
             }
-          } catch (e) {
-            throw new Error(describeApiError(e, "person"));
+          } else {
+            go(`${BASE}/${existing.id}`);
           }
         }}
       />
     );
   }
 
+  if (location.mode === "page" && !workspaceRecords.some((a) => a.id === targetId)) {
+    if (detail.isPending) return null;
+    if (detail.isError) {
+      return (
+        <EmptyState
+          size="lg"
+          tone="danger"
+          title="We couldn't load this assignment"
+          description={describeApiError(detail.error, "person")}
+          actions={<Button onClick={() => go(BASE)}>Back to staff</Button>}
+        />
+      );
+    }
+  }
+
+  const filterBar = (
+    <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+      <Select
+        aria-label="Filter by role"
+        value={roleFilter}
+        onValueChange={(value) => {
+          setRoleFilter(value);
+          setPage(1);
+        }}
+        options={[{ value: ALL_FILTER, label: "All roles" }, ...(roles.data ?? []).map((r) => ({ value: r.id, label: r.name }))]}
+        className="w-full sm:w-[170px]"
+      />
+      {hasBranches && (
+        <Select
+          aria-label="Filter by branch"
+          value={branchFilter}
+          onValueChange={(value) => {
+            setBranchFilter(value);
+            setPage(1);
+          }}
+          options={[{ value: ALL_FILTER, label: "All branches" }, ...(branches.data ?? []).map((b) => ({ value: b.id, label: b.name }))]}
+          className="w-full sm:w-[170px]"
+        />
+      )}
+      {addStaff("Add staff", true)}
+    </div>
+  );
+
   return (
     <RecordWorkspace
       fit
       inlineToasts={false}
       className={location.mode === "list" ? undefined : "h-[calc(100vh-270px)] min-h-[520px]"}
-      records={rows}
+      records={workspaceRecords}
       getId={(a) => a.id}
       noun="person"
       listLabel="Staff"
@@ -202,8 +265,30 @@ function StaffView({ organizationId }: { organizationId: string }) {
           activeRowId={activeRowId}
           highlightIds={highlightIds}
           onVisibleRowsChange={onVisibleRowsChange}
-          emptyState={<EmptyState icon={<UserIcon />} title="No staff yet" description="Give someone who has a Cheche account a role here." actions={addStaff("Add staff")} />}
-          toolbarActions={addStaff("Add staff", true)}
+          emptyState={
+            roleFilter !== ALL_FILTER || branchFilter !== ALL_FILTER ? (
+              <EmptyState
+                icon={<UserIcon />}
+                title="No staff match these filters"
+                description="Try another role or branch."
+                actions={
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setRoleFilter(ALL_FILTER);
+                      setBranchFilter(ALL_FILTER);
+                      setPage(1);
+                    }}
+                  >
+                    Clear filters
+                  </Button>
+                }
+              />
+            ) : (
+              <EmptyState icon={<UserIcon />} title="No staff yet" description="Give someone who has a Cheche account a role here." actions={addStaff("Add staff")} />
+            )
+          }
+          toolbarActions={filterBar}
           className="rounded-none border-none shadow-none"
         />
       )}

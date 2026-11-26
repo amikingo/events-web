@@ -57,6 +57,8 @@ export function describeApiError(error: unknown, noun = "item"): string {
       return "This number has no Cheche account yet. Ask them to sign up first, then try again.";
     case "last_owner_assignment":
       return "The organization needs at least one active Owner. Give the role to someone else first.";
+    case "assignment_scope_conflict":
+      return "This person already has this role for the whole organization or for a branch. Use one or the other.";
     case "registration_closed":
       return registrationClosedMessage(error.details);
     case "capacity_reached":

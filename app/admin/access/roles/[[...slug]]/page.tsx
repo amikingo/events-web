@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Suspense, useState } from "react";
 import { NoOrganization, useOrganizationId } from "@/app/admin/_components/organization-scope";
@@ -9,11 +10,12 @@ import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
-import { InfoIcon, PlusIcon, ShieldIcon } from "@/components/ui/icons";
+import { InfoIcon, PlusIcon, ShieldIcon, UserIcon } from "@/components/ui/icons";
 import { Note } from "@/components/ui/note";
 import { Pill } from "@/components/ui/pill";
 import { RecordHeading, RecordKv, RecordRailCard } from "@/components/ui/record-view";
 import { RecordWorkspace, parseRecordPath, recordPath } from "@/components/ui/record-workspace";
+import { Skeleton, SkeletonStack } from "@/components/ui/skeleton";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Table } from "@/components/ui/table";
 import type { ColumnDef } from "@/components/ui/table";
@@ -24,7 +26,10 @@ import { describeApiError } from "@/lib/api/errors";
 import { listOrganizationRoleTemplates } from "@/lib/api/role-templates";
 import { changeRoleStatus, createRole, listRoles, updateRole } from "@/lib/api/roles";
 import type { Role, RoleCreateInput, RoleGrant, RoleUpdateInput } from "@/lib/api/roles";
+import { listStaffAssignments } from "@/lib/api/staff";
+import type { StaffAssignment } from "@/lib/api/staff";
 import { MODULE_CODES } from "@/lib/constants/modules";
+import { formatNumber } from "@/lib/format";
 import { useOrganization } from "@/lib/organization-context";
 import { roleQk, roleTemplateQk, staffQk } from "@/lib/query-keys";
 import { RoleForm } from "./role-form";
@@ -66,9 +71,117 @@ const columns: ColumnDef<Role>[] = [
     ),
   },
   { key: "code", header: "Code", accessor: (r) => <span className="font-mono">{r.code}</span> },
+  { key: "modules", header: "Modules", numeric: true, filterValue: (r) => r.grant_count, accessor: (r) => formatNumber(r.grant_count) },
+  { key: "staff", header: "Staff", numeric: true, filterValue: (r) => r.member_count, accessor: (r) => formatNumber(r.member_count) },
   { key: "access", header: "Access", filterValue: summarizeAccess, accessor: summarizeAccess },
   { key: "status", header: "Status", filterValue: (r) => (r.is_active ? "active" : "inactive"), render: status },
 ];
+
+const staffName = (a: StaffAssignment) =>
+  (a.profile ? [a.profile.firstname, a.profile.middlename, a.profile.lastname].filter(Boolean).join(" ") : "") || "Name unavailable";
+const staffInitials = (a: StaffAssignment) =>
+  staffName(a)
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase() || "?";
+
+/**
+ * Read-only list of the active staff holding this role (the same people `member_count` counts), each linking
+ * directly to the assignment.
+ */
+function RoleMembers({ organizationId, roleId }: { organizationId: string; roleId: string }) {
+  const { hasModuleAccess } = useModuleAccess();
+  const [page, setPage] = useState(1);
+  const canViewStaff = hasModuleAccess(MODULE_CODES.USER_ROLES);
+  const params = { page, pageSize: 20, roleId, isActive: true };
+
+  const query = useQuery({
+    queryKey: staffQk.list(organizationId, params),
+    queryFn: ({ signal }) => listStaffAssignments(organizationId, params, signal),
+    enabled: canViewStaff,
+  });
+
+  if (!canViewStaff) {
+    return (
+      <EmptyState
+        size="sm"
+        icon={<UserIcon />}
+        title="Staff assignments hidden"
+        description="You need Staff Assignments access to view members of this role."
+      />
+    );
+  }
+
+  if (query.isPending) {
+    return (
+      <SkeletonStack>
+        <Skeleton shape="block" />
+        <Skeleton shape="block" />
+      </SkeletonStack>
+    );
+  }
+
+  if (query.isError) {
+    return (
+      <EmptyState
+        size="sm"
+        tone="danger"
+        title="We couldn't load members"
+        description={describeApiError(query.error, "person")}
+        actions={<Button variant="secondary" onClick={() => void query.refetch()}>Try again</Button>}
+      />
+    );
+  }
+
+  const members = query.data.data;
+  if (members.length === 0) {
+    return <EmptyState size="sm" icon={<UserIcon />} title="Nobody has this role yet" description="Assign staff from Staff Assignments to see them here." />;
+  }
+
+  const totalPages = query.data.totalPages;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <RecordHeading>Members</RecordHeading>
+      <div className="divide-y divide-border overflow-hidden rounded-sm border border-border">
+        {members.map((a) => (
+          <Link
+            key={a.id}
+            href={`/admin/access/assignments/${a.id}`}
+            className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-surface-2"
+          >
+            <div className="flex min-w-0 items-center gap-3">
+              <Avatar initials={staffInitials(a)} size={32} />
+              <div className="flex min-w-0 flex-col">
+                <span className="truncate type-body font-medium text-text">{staffName(a)}</span>
+                <span className="truncate type-body-sm text-text-faint">
+                  {a.profile?.mobile ?? "—"} · {a.branch?.name ?? "Whole organization"}
+                </span>
+              </div>
+            </div>
+            <StatusPill kind="account" status={a.is_active ? "active" : "inactive"} size="sm" />
+          </Link>
+        ))}
+      </div>
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <Button variant="secondary" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            Previous
+          </Button>
+          <span className="type-body-sm text-text-faint">
+            Page {page} of {totalPages}
+          </span>
+          <Button variant="secondary" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+            Next
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Change the address without rebuilding the page. */
 function go(path: string) {
@@ -274,13 +387,17 @@ function RolesView({ organizationId }: { organizationId: string }) {
           };
         }}
         stats={(r) => [
-          { label: "Modules", value: String(activeGrants(r).length) },
+          { label: "Modules", value: String(r.grant_count) },
+          { label: "Staff", value: String(r.member_count) },
           { label: "Status", value: r.is_active ? "Active" : "Switched off" },
         ]}
         panel={(r) => <Grants role={r} />}
         page={{
-          tabs: [{ id: "access", label: "Access" }],
-          content: (r) => <Grants role={r} />,
+          tabs: [
+            { id: "access", label: "Access" },
+            { id: "members", label: "Members", count: (r) => r.member_count },
+          ],
+          content: (r, tab) => (tab === "members" ? <RoleMembers key={r.id} organizationId={organizationId} roleId={r.id} /> : <Grants role={r} />),
           rail: (r) => (
             <RecordRailCard title="Role">
               <RecordKv

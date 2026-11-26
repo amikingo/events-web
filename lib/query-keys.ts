@@ -79,6 +79,7 @@ export const roleQk = {
 export const staffQk = {
   all: (organizationId: string) => ["staff", organizationId] as const,
   list: (organizationId: string, params: StaffListParams) => ["staff", organizationId, "list", params] as const,
+  detail: (organizationId: string, assignmentId: string) => ["staff", organizationId, "detail", assignmentId] as const,
   overrides: (organizationId: string, assignmentId: string) => ["staff", organizationId, "overrides", assignmentId] as const,
 };
 

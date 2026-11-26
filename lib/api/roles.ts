@@ -28,6 +28,8 @@ export interface Role {
   name: string;
   description: string | null;
   is_active: boolean;
+  grant_count: number;
+  member_count: number;
   grants: RoleGrant[];
 }
 

@@ -10,6 +10,7 @@ import { Field } from "@/components/ui/field";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { Select } from "@/components/ui/select";
 import { toast } from "@/components/ui/toaster";
+import { ApiError } from "@/lib/api-client";
 import { describeApiError } from "@/lib/api/errors";
 import { listAllBranches } from "@/lib/api/branches";
 import { listRoles } from "@/lib/api/roles";
@@ -31,7 +32,7 @@ export function AddStaffForm({ organizationId, hasBranches, onDone }: { organiza
   const [found, setFound] = useState<StaffLookup | null>(null);
   const [roleId, setRoleId] = useState("");
   const [branchId, setBranchId] = useState(ORGANIZATION_WIDE);
-  const [errors, setErrors] = useState<{ mobile?: string; role?: string }>({});
+  const [errors, setErrors] = useState<{ mobile?: string; role?: string; branch?: string }>({});
   const [failure, setFailure] = useState<string | null>(null);
 
   const roles = useQuery({ queryKey: roleQk.list(organizationId), queryFn: ({ signal }) => listRoles(organizationId, signal) });
@@ -54,7 +55,14 @@ export function AddStaffForm({ organizationId, hasBranches, onDone }: { organiza
       else toast.info("Already has this role", { body: "Nothing changed." });
       onDone(assignment.id);
     },
-    onError: (error) => setFailure(describeApiError(error, "person")),
+    onError: (error) => {
+      if (error instanceof ApiError && error.code === "assignment_scope_conflict") {
+        const msg = describeApiError(error, "person");
+        setErrors(hasBranches ? { branch: msg } : { role: msg });
+        return;
+      }
+      setFailure(describeApiError(error, "person"));
+    },
   });
 
   function find(e: React.FormEvent) {
@@ -140,14 +148,17 @@ export function AddStaffForm({ organizationId, hasBranches, onDone }: { organiza
               />
             </Field>
             {hasBranches && (
-              <Field label="Where" htmlFor="st-branch" hint="One branch only, or the whole organization.">
+              <Field label="Where" htmlFor="st-branch" error={errors.branch} hint="One branch only, or the whole organization.">
                 <Select
                   id="st-branch"
                   disabled={!found}
                   loading={branches.isPending}
                   options={[{ value: ORGANIZATION_WIDE, label: "Whole organization" }, ...(branches.data ?? []).filter((b) => b.is_active).map((b) => ({ value: b.id, label: b.name }))]}
                   value={branchId}
-                  onValueChange={setBranchId}
+                  onValueChange={(v) => {
+                    setBranchId(v);
+                    setErrors({});
+                  }}
                 />
               </Field>
             )}

@@ -28,6 +28,7 @@ export interface RoleTemplate {
   is_active: boolean;
   for_new_organizations: boolean;
   locked: boolean;
+  grant_count: number;
   grants: RoleTemplateGrant[];
 }
 

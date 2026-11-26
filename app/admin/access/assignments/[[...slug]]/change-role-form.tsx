@@ -8,6 +8,8 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ErrorBanner } from "@/components/ui/error-banner";
 import { Field } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
+import { ApiError } from "@/lib/api-client";
+import { describeApiError } from "@/lib/api/errors";
 import type { Role } from "@/lib/api/roles";
 import type { StaffAssignment } from "@/lib/api/staff";
 
@@ -19,7 +21,7 @@ interface ChangeRoleFormProps {
   roles: Role[];
   /** Only when the organization has branches. */
   branches?: { id: string; name: string; is_active: boolean }[];
-  /** Persist. Throw an Error with a message to keep the form open and show it. */
+  /** Persist. Throw an ApiError or Error to keep the form open and show it. */
   onSubmit: (changes: { role_id?: string; branch_id?: string | null }) => Promise<void>;
   onCancel: () => void;
 }
@@ -28,6 +30,7 @@ interface ChangeRoleFormProps {
 export function ChangeRoleForm({ assignment, personName, roles, branches, onSubmit, onCancel }: ChangeRoleFormProps) {
   const [roleId, setRoleId] = useState(assignment.role.id);
   const [where, setWhere] = useState(assignment.branch?.id ?? ORGANIZATION_WIDE);
+  const [errors, setErrors] = useState<{ role?: string; branch?: string }>({});
   const [failure, setFailure] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
@@ -38,12 +41,18 @@ export function ChangeRoleForm({ assignment, personName, roles, branches, onSubm
     const changes: { role_id?: string; branch_id?: string | null } = {};
     if (roleId !== assignment.role.id) changes.role_id = roleId;
     if (branches && where !== (assignment.branch?.id ?? ORGANIZATION_WIDE)) changes.branch_id = where === ORGANIZATION_WIDE ? null : where;
+    setErrors({});
     setFailure(null);
     setSaving(true);
     try {
       await onSubmit(changes);
     } catch (err) {
-      setFailure(err instanceof Error ? err.message : "We couldn't change the role. Try again.");
+      if (err instanceof ApiError && err.code === "assignment_scope_conflict") {
+        const msg = describeApiError(err, "person");
+        setErrors(branches ? { branch: msg } : { role: msg });
+      } else {
+        setFailure(err instanceof ApiError ? describeApiError(err, "person") : err instanceof Error ? err.message : "We couldn't change the role. Try again.");
+      }
       setSaving(false);
     }
   }
@@ -79,16 +88,28 @@ export function ChangeRoleForm({ assignment, personName, roles, branches, onSubm
         <Card>
           <CardHeader title="Role" subtitle="What they can see and do here." />
           <div className="flex flex-col gap-4">
-            <Field label="Role" htmlFor="cr-role" required>
-              <Select id="cr-role" placeholder="Choose an active role" options={roles.filter((r) => r.is_active).map((r) => ({ value: r.id, label: r.name }))} value={roleId} onValueChange={setRoleId} />
+            <Field label="Role" htmlFor="cr-role" required error={errors.role}>
+              <Select
+                id="cr-role"
+                placeholder="Choose an active role"
+                options={roles.filter((r) => r.is_active).map((r) => ({ value: r.id, label: r.name }))}
+                value={roleId}
+                onValueChange={(v) => {
+                  setRoleId(v);
+                  setErrors({});
+                }}
+              />
             </Field>
             {branches && (
-              <Field label="Where" htmlFor="cr-where" hint="One branch only, or the whole organization.">
+              <Field label="Where" htmlFor="cr-where" error={errors.branch} hint="One branch only, or the whole organization.">
                 <Select
                   id="cr-where"
                   options={[{ value: ORGANIZATION_WIDE, label: "Whole organization" }, ...branches.filter((b) => b.is_active || b.id === assignment.branch?.id).map((b) => ({ value: b.id, label: b.name }))]}
                   value={where}
-                  onValueChange={setWhere}
+                  onValueChange={(v) => {
+                    setWhere(v);
+                    setErrors({});
+                  }}
                 />
               </Field>
             )}

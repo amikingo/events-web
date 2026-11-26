@@ -33,6 +33,7 @@ import type {
   RoleTemplateUpdateInput,
 } from "@/lib/api/role-templates";
 import { MODULE_CODES } from "@/lib/constants/modules";
+import { formatNumber } from "@/lib/format";
 import { roleTemplateQk } from "@/lib/query-keys";
 import { RoleTemplateForm } from "./role-template-form";
 
@@ -71,6 +72,7 @@ const columns: ColumnDef<RoleTemplate>[] = [
     ),
   },
   { key: "code", header: "Code", accessor: (t) => <span className="font-mono">{t.code}</span> },
+  { key: "modules", header: "Modules", numeric: true, filterValue: (t) => t.grant_count, accessor: (t) => formatNumber(t.grant_count) },
   { key: "status", header: "Status", filterValue: (t) => (t.is_active ? "active" : "inactive"), render: statusPill },
 ];
 
@@ -286,7 +288,7 @@ function RoleTemplatesView() {
                 ],
         })}
         stats={(t) => [
-          { label: "Modules", value: String(activeGrants(t).length) },
+          { label: "Modules", value: String(t.grant_count) },
           { label: "New orgs", value: t.for_new_organizations ? "Yes" : "No" },
           { label: "Status", value: t.is_active ? "Active" : "Switched off" },
         ]}

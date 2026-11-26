@@ -48,6 +48,8 @@ export interface StaffListParams {
   page: number;
   pageSize: number;
   isActive?: boolean;
+  roleId?: string;
+  branchId?: string;
 }
 
 const base = (organizationId: string) => `/v1/organizations/${organizationId}`;
@@ -56,9 +58,17 @@ export function listStaffAssignments(organizationId: string, params: StaffListPa
   return apiPage<StaffAssignment>(`${base(organizationId)}/staff-assignments`, {
     page: params.page,
     pageSize: clampPageSize(params.pageSize),
-    query: { is_active: params.isActive === undefined ? undefined : String(params.isActive) },
+    query: {
+      is_active: params.isActive === undefined ? undefined : String(params.isActive),
+      role_id: params.roleId,
+      branch_id: params.branchId,
+    },
     signal,
   });
+}
+
+export function getStaffAssignment(organizationId: string, assignmentId: string, signal?: AbortSignal): Promise<StaffAssignment> {
+  return apiRequest<StaffAssignment>(`${base(organizationId)}/staff-assignments/${assignmentId}`, { signal });
 }
 
 /** `404 central_account_not_found` when nobody uses that number. */
