@@ -15,17 +15,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toaster";
 import { ApiError } from "@/lib/api-client";
 import { describeApiError } from "@/lib/api/errors";
-import type { RoleGrantInput } from "@/lib/api/roles";
+import type { GrantAction, GrantableModule, RoleGrantInput } from "@/lib/api/roles";
 import type { RoleTemplate, RoleTemplateCreateInput, RoleTemplateUpdateInput } from "@/lib/api/role-templates";
 import {
-  GRANT_MODULES,
   GrantGrid,
   grantsEqual,
   initialGrantState,
+  sortGrantableModules,
   toggleGrantFlag,
   toGrantPayload,
 } from "@/app/admin/access/_components/grant-grid";
-import type { GrantAction, GrantState } from "@/app/admin/access/_components/grant-grid";
+import type { GrantState } from "@/app/admin/access/_components/grant-grid";
 
 interface Values {
   code: string;
@@ -43,15 +43,14 @@ type FieldErrors = {
 };
 
 const CODE_PATTERN = /^[A-Za-z0-9_]+$/;
-const ALL_MODULE_CODES = GRANT_MODULES.map((m) => m.code);
 
-function startValues(template?: RoleTemplate): Values {
+function startValues(template: RoleTemplate | undefined, modules: readonly GrantableModule[]): Values {
   return {
     code: template?.code ?? "",
     name: template?.name ?? "",
     description: template?.description ?? "",
     forNewOrganizations: template?.for_new_organizations ?? false,
-    grants: initialGrantState(template?.grants),
+    grants: initialGrantState(template?.grants, modules),
   };
 }
 
@@ -73,32 +72,29 @@ function validate(v: Values, editing: boolean): FieldErrors {
 
 interface RoleTemplateFormProps {
   template?: RoleTemplate;
+  grantableModules: GrantableModule[];
   onCreate: (input: RoleTemplateCreateInput) => Promise<void>;
   onUpdate: (changes: RoleTemplateUpdateInput) => Promise<void>;
   onCancel: () => void;
 }
 
-export function RoleTemplateForm({ template, onCreate, onUpdate, onCancel }: RoleTemplateFormProps) {
+export function RoleTemplateForm({ template, grantableModules, onCreate, onUpdate, onCancel }: RoleTemplateFormProps) {
   const editing = Boolean(template);
-  const [start] = useState(() => startValues(template));
+  const orderedModules = sortGrantableModules(grantableModules);
+  const allCodes = orderedModules.map((m) => m.module_code);
+  const [start] = useState(() => startValues(template, orderedModules));
   const [values, setValues] = useState<Values>(start);
   const [errors, setErrors] = useState<FieldErrors>({ grants: {} });
   const [failure, setFailure] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
 
-  const moduleNames: Record<string, string> = {};
-  for (const mod of GRANT_MODULES) {
-    const fromTemplate = template?.grants.find((g) => g.module_code === mod.code);
-    moduleNames[mod.code] = fromTemplate?.module_name ?? mod.defaultName;
-  }
-
   const textDirty =
     values.code !== start.code ||
     values.name !== start.name ||
     values.description !== start.description ||
     values.forNewOrganizations !== start.forNewOrganizations;
-  const grantsDirty = !grantsEqual(values.grants, start.grants, ALL_MODULE_CODES);
+  const grantsDirty = !grantsEqual(values.grants, start.grants, allCodes);
   const dirty = textDirty || grantsDirty;
 
   function setField<K extends "code" | "name" | "description">(key: K, value: string) {
@@ -174,7 +170,7 @@ export function RoleTemplateForm({ template, onCreate, onUpdate, onCancel }: Rol
 
     setFailure(null);
     setSaving(true);
-    const grantsPayload = toGrantPayload(values.grants);
+    const grantsPayload = toGrantPayload(values.grants, orderedModules);
 
     try {
       if (template) {
@@ -303,8 +299,7 @@ export function RoleTemplateForm({ template, onCreate, onUpdate, onCancel }: Rol
         </Card>
 
         <GrantGrid
-          visibleModules={GRANT_MODULES}
-          moduleNames={moduleNames}
+          visibleModules={orderedModules}
           grants={values.grants}
           errors={errors.grants}
           onToggle={toggleGrant}

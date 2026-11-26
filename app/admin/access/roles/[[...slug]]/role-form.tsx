@@ -14,16 +14,16 @@ import { toast } from "@/components/ui/toaster";
 import { ApiError } from "@/lib/api-client";
 import { describeApiError, grantExceedsOwnAccessMessage } from "@/lib/api/errors";
 import type { RoleTemplate } from "@/lib/api/role-templates";
-import type { Role, RoleCreateInput, RoleGrantInput, RoleUpdateInput } from "@/lib/api/roles";
+import type { GrantAction, GrantableModule, Role, RoleCreateInput, RoleGrantInput, RoleUpdateInput } from "@/lib/api/roles";
 import {
-  GRANT_MODULES,
   GrantGrid,
   grantsEqual,
   initialGrantState,
+  sortGrantableModules,
   toggleGrantFlag,
   toGrantPayload,
 } from "@/app/admin/access/_components/grant-grid";
-import type { GrantAction, GrantState } from "@/app/admin/access/_components/grant-grid";
+import type { GrantState } from "@/app/admin/access/_components/grant-grid";
 
 interface Values {
   code: string;
@@ -41,12 +41,12 @@ type FieldErrors = {
 
 const CODE_PATTERN = /^[A-Za-z0-9_]+$/;
 
-function startValues(role?: Role): Values {
+function startValues(role: Role | undefined, modules: readonly GrantableModule[]): Values {
   return {
     code: role?.code ?? "",
     name: role?.name ?? "",
     description: role?.description ?? "",
-    grants: initialGrantState(role?.grants),
+    grants: initialGrantState(role?.grants, modules),
   };
 }
 
@@ -68,7 +68,7 @@ function validate(v: Values, editing: boolean): FieldErrors {
 
 interface RoleFormProps {
   role?: Role;
-  ownerRole?: Role;
+  grantableModules: GrantableModule[];
   hasBranches: boolean;
   templates?: RoleTemplate[];
   onCreate: (input: RoleCreateInput) => Promise<void>;
@@ -76,18 +76,18 @@ interface RoleFormProps {
   onCancel: () => void;
 }
 
-export function RoleForm({ role, ownerRole, hasBranches, templates, onCreate, onUpdate, onCancel }: RoleFormProps) {
+export function RoleForm({ role, grantableModules, hasBranches, templates, onCreate, onUpdate, onCancel }: RoleFormProps) {
   const editing = Boolean(role);
-  const visibleModules = GRANT_MODULES.filter((m) => hasBranches || m.code !== "BRANCHES");
-  const visibleCodes = visibleModules.map((m) => m.code);
+  const orderedModules = sortGrantableModules(grantableModules);
+  const visibleModules = orderedModules.filter((m) => hasBranches || m.module_code !== "BRANCHES");
+  const visibleCodes = visibleModules.map((m) => m.module_code);
 
   const moduleNames: Record<string, string> = {};
-  for (const mod of GRANT_MODULES) {
-    const ownerGrant = ownerRole?.grants.find((g) => g.module_code === mod.code);
-    moduleNames[mod.code] = ownerGrant?.module_name ?? mod.defaultName;
+  for (const mod of orderedModules) {
+    moduleNames[mod.module_code] = mod.module_name;
   }
 
-  const [start] = useState(() => startValues(role));
+  const [start] = useState(() => startValues(role, orderedModules));
   const [values, setValues] = useState<Values>(start);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [errors, setErrors] = useState<FieldErrors>({ grants: {} });
@@ -107,7 +107,7 @@ export function RoleForm({ role, ownerRole, hasBranches, templates, onCreate, on
       ...prev,
       name: tpl.name,
       description: tpl.description ?? "",
-      grants: initialGrantState(tpl.grants),
+      grants: initialGrantState(tpl.grants, orderedModules),
     }));
     setErrors({ grants: {} });
     setFailure(null);
@@ -194,7 +194,7 @@ export function RoleForm({ role, ownerRole, hasBranches, templates, onCreate, on
 
     setFailure(null);
     setSaving(true);
-    const grantsPayload = toGrantPayload(values.grants);
+    const grantsPayload = toGrantPayload(values.grants, orderedModules);
 
     try {
       if (role) {
@@ -329,7 +329,6 @@ export function RoleForm({ role, ownerRole, hasBranches, templates, onCreate, on
 
         <GrantGrid
           visibleModules={visibleModules}
-          moduleNames={moduleNames}
           grants={values.grants}
           errors={errors.grants}
           onToggle={toggleGrant}

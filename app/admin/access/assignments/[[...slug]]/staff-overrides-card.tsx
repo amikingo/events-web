@@ -15,11 +15,14 @@ import { Skeleton, SkeletonStack } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toaster";
 import { ApiError } from "@/lib/api-client";
 import { describeApiError, grantExceedsOwnAccessMessage } from "@/lib/api/errors";
+import { listGrantableModules } from "@/lib/api/roles";
+import type { GrantableModule } from "@/lib/api/roles";
 import { getStaffOverrides, replaceStaffOverrides } from "@/lib/api/staff";
 import type { StaffOverrideAction, StaffOverrideInput, StaffOverrideModule, StaffOverrides } from "@/lib/api/staff";
 import { useAuth } from "@/lib/auth-context";
 import { MODULE_CODES } from "@/lib/constants/modules";
-import { staffQk } from "@/lib/query-keys";
+import { roleQk, staffQk } from "@/lib/query-keys";
+import { ALL_GRANT_ACTIONS, sortGrantableModules } from "@/app/admin/access/_components/grant-grid";
 import { cn } from "@/lib/utils";
 
 type ChoiceValue = "follow" | "allow" | "deny";
@@ -30,7 +33,10 @@ const ACTION_LABELS: Record<StaffOverrideAction, string> = {
   view: "View",
   create: "Create",
   update: "Update",
+  delete: "Delete",
+  import: "Import",
   export: "Export",
+  notify: "Notify",
 };
 
 const OPTIONS: { value: ChoiceValue; label: string }[] = [
@@ -39,7 +45,11 @@ const OPTIONS: { value: ChoiceValue; label: string }[] = [
   { value: "deny", label: "Deny" },
 ];
 
-function toChoice(value: boolean | null): ChoiceValue {
+function emptyOverrideFlags(): DraftFlags {
+  return { view: null, create: null, update: null, delete: null, import: null, export: null, notify: null };
+}
+
+function toChoice(value: boolean | null | undefined): ChoiceValue {
   if (value === true) return "allow";
   if (value === false) return "deny";
   return "follow";
@@ -51,26 +61,54 @@ function fromChoice(choice: string): boolean | null {
   return null;
 }
 
-function buildDraft(data: StaffOverrides): DraftMap {
+function mergeModulesWithGrantables(
+  overrideModules: StaffOverrideModule[],
+  grantableModules: GrantableModule[] | undefined,
+): StaffOverrideModule[] {
+  if (!grantableModules || grantableModules.length === 0) return overrideModules;
+  const byCode = new Map(overrideModules.map((m) => [m.module_code, m]));
+  const ordered = sortGrantableModules(grantableModules);
+  const merged: StaffOverrideModule[] = [];
+  for (const gm of ordered) {
+    const existing = byCode.get(gm.module_code);
+    if (existing) {
+      merged.push({
+        ...existing,
+        module_name: gm.module_name,
+        actions: gm.actions,
+      });
+    }
+  }
+  for (const m of overrideModules) {
+    if (!merged.some((x) => x.module_code === m.module_code)) merged.push(m);
+  }
+  return merged;
+}
+
+function buildDraft(modules: StaffOverrideModule[]): DraftMap {
   const draft: DraftMap = {};
-  for (const mod of data.modules) {
-    draft[mod.module_code] = { ...mod.override };
+  for (const mod of modules) {
+    const row = emptyOverrideFlags();
+    for (const action of ALL_GRANT_ACTIONS) {
+      row[action] = mod.override[action] ?? null;
+    }
+    draft[mod.module_code] = row;
   }
   return draft;
 }
 
-function draftMatches(data: StaffOverrides, draft: DraftMap): boolean {
-  return data.modules.every((mod) => {
+function draftMatches(modules: StaffOverrideModule[], draft: DraftMap): boolean {
+  return modules.every((mod) => {
     const current = draft[mod.module_code];
-    return mod.actions.every((action) => (current?.[action] ?? null) === mod.override[action]);
+    return mod.actions.every((action) => (current?.[action] ?? null) === (mod.override[action] ?? null));
   });
 }
 
 function rowDiffersFromRole(mod: StaffOverrideModule, flags: DraftFlags | undefined): boolean {
   return mod.actions.some((action) => {
     const overrideVal = flags?.[action] ?? null;
-    const effective = overrideVal ?? mod.role[action];
-    return effective !== mod.role[action];
+    const effective = overrideVal ?? Boolean(mod.role[action]);
+    return effective !== Boolean(mod.role[action]);
   });
 }
 
@@ -84,26 +122,27 @@ interface OverridesEditorProps {
   organizationId: string;
   assignmentId: string;
   data: StaffOverrides;
+  modules: StaffOverrideModule[];
   editable: boolean;
   isOwnAssignment: boolean;
 }
 
-function OverridesEditor({ organizationId, assignmentId, data, editable, isOwnAssignment }: OverridesEditorProps) {
+function OverridesEditor({ organizationId, assignmentId, data, modules, editable, isOwnAssignment }: OverridesEditorProps) {
   const queryClient = useQueryClient();
-  const [draft, setDraft] = useState<DraftMap>(() => buildDraft(data));
+  const [draft, setDraft] = useState<DraftMap>(() => buildDraft(modules));
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [bannerError, setBannerError] = useState<string | null>(null);
 
-  const dirty = editable && !draftMatches(data, draft);
+  const dirty = editable && !draftMatches(modules, draft);
 
   const moduleNames: Record<string, string> = {};
-  for (const mod of data.modules) moduleNames[mod.module_code] = mod.module_name;
+  for (const mod of modules) moduleNames[mod.module_code] = mod.module_name;
 
   const save = useMutation({
     mutationFn: (payload: StaffOverrideInput[]) => replaceStaffOverrides(organizationId, assignmentId, payload),
     onSuccess: (updated) => {
       queryClient.setQueryData(staffQk.overrides(organizationId, assignmentId), updated);
-      setDraft(buildDraft(updated));
+      setDraft(buildDraft(mergeModulesWithGrantables(updated.modules, undefined)));
       setRowErrors({});
       setBannerError(null);
       toast.success("Access saved", { body: "Changes apply on their next request." });
@@ -114,7 +153,7 @@ function OverridesEditor({ organizationId, assignmentId, data, editable, isOwnAs
     setDraft((prev) => ({
       ...prev,
       [moduleCode]: {
-        ...(prev[moduleCode] ?? { view: null, create: null, update: null, export: null }),
+        ...(prev[moduleCode] ?? emptyOverrideFlags()),
         [action]: nextVal,
       },
     }));
@@ -129,8 +168,8 @@ function OverridesEditor({ organizationId, assignmentId, data, editable, isOwnAs
   }
 
   async function handleSave() {
-    const payload: StaffOverrideInput[] = data.modules.map((mod) => {
-      const current = draft[mod.module_code] ?? mod.override;
+    const payload: StaffOverrideInput[] = modules.map((mod) => {
+      const current = draft[mod.module_code] ?? emptyOverrideFlags();
       const entry: StaffOverrideInput = { module_code: mod.module_code };
       for (const action of mod.actions) {
         entry[action] = current[action] ?? null;
@@ -193,7 +232,7 @@ function OverridesEditor({ organizationId, assignmentId, data, editable, isOwnAs
                   variant="secondary"
                   disabled={save.isPending}
                   onClick={() => {
-                    setDraft(buildDraft(data));
+                    setDraft(buildDraft(modules));
                     setRowErrors({});
                     setBannerError(null);
                   }}
@@ -219,8 +258,8 @@ function OverridesEditor({ organizationId, assignmentId, data, editable, isOwnAs
           {bannerError && <ErrorBanner>{bannerError}</ErrorBanner>}
 
           <div className="divide-y divide-border overflow-hidden rounded-sm border border-border">
-            {data.modules.map((mod) => {
-              const flags = draft[mod.module_code] ?? mod.override;
+            {modules.map((mod) => {
+              const flags = draft[mod.module_code] ?? emptyOverrideFlags();
               const modified = rowDiffersFromRole(mod, flags);
               const rowError = rowErrors[mod.module_code];
 
@@ -253,7 +292,7 @@ function OverridesEditor({ organizationId, assignmentId, data, editable, isOwnAs
                   <div className="flex flex-col gap-2.5">
                     {mod.actions.map((action) => {
                       const overrideVal = flags[action] ?? null;
-                      const roleGives = mod.role[action];
+                      const roleGives = Boolean(mod.role[action]);
                       const ro = readOnlyLabel(overrideVal, roleGives);
 
                       return (
@@ -290,6 +329,7 @@ function OverridesEditor({ organizationId, assignmentId, data, editable, isOwnAs
               );
             })}
           </div>
+          <p className="m-0 type-body-sm text-text-faint">Delete, import and notify take effect where a screen offers them.</p>
         </div>
       )}
     </Card>
@@ -319,8 +359,12 @@ export function StaffOverridesCard({
     queryKey: staffQk.overrides(organizationId, assignmentId),
     queryFn: ({ signal }) => getStaffOverrides(organizationId, assignmentId, signal),
   });
+  const grantable = useQuery({
+    queryKey: roleQk.grantableModules(organizationId),
+    queryFn: ({ signal }) => listGrantableModules(organizationId, signal),
+  });
 
-  if (query.isPending) {
+  if (query.isPending || grantable.isPending) {
     return (
       <Card id="access-card">
         <CardHeader title="Access" subtitle="Loading permission overrides…" />
@@ -348,8 +392,9 @@ export function StaffOverridesCard({
   }
 
   const data = query.data;
+  const modules = mergeModulesWithGrantables(data.modules, grantable.data);
   const editable = canUpdate && !isOwnAssignment && data.overridable;
-  const versionKey = `${data.assignment_id}:${assignmentRoleId}:${JSON.stringify(data.modules.map((m) => m.override))}`;
+  const versionKey = `${data.assignment_id}:${assignmentRoleId}:${JSON.stringify(modules.map((m) => [m.override, m.actions]))}`;
 
   return (
     <OverridesEditor
@@ -357,6 +402,7 @@ export function StaffOverridesCard({
       organizationId={organizationId}
       assignmentId={assignmentId}
       data={data}
+      modules={modules}
       editable={editable}
       isOwnAssignment={isOwnAssignment}
     />

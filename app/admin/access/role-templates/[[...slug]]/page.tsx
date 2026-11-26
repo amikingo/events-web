@@ -14,12 +14,14 @@ import { Note } from "@/components/ui/note";
 import { Pill } from "@/components/ui/pill";
 import { RecordHeading, RecordKv, RecordRailCard } from "@/components/ui/record-view";
 import { RecordWorkspace, parseRecordPath, recordPath } from "@/components/ui/record-workspace";
+import { Skeleton, SkeletonStack } from "@/components/ui/skeleton";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Table } from "@/components/ui/table";
 import type { ColumnDef } from "@/components/ui/table";
 import { toast } from "@/components/ui/toaster";
 import { ApiError } from "@/lib/api-client";
 import { describeApiError } from "@/lib/api/errors";
+import { listGrantableModules } from "@/lib/api/roles";
 import {
   changeRoleTemplateStatus,
   createRoleTemplate,
@@ -34,12 +36,14 @@ import type {
 } from "@/lib/api/role-templates";
 import { MODULE_CODES } from "@/lib/constants/modules";
 import { formatNumber } from "@/lib/format";
-import { roleTemplateQk } from "@/lib/query-keys";
+import { useOrganization } from "@/lib/organization-context";
+import { roleQk, roleTemplateQk } from "@/lib/query-keys";
+import { DEFAULT_GRANTABLE_FALLBACK } from "@/app/admin/access/_components/grant-grid";
 import { RoleTemplateForm } from "./role-template-form";
 
 const BASE = "/admin/access/role-templates";
 const MODULE = MODULE_CODES.ROLE_TEMPLATES;
-const ACTIONS = ["view", "create", "update", "export"] as const;
+const ACTIONS = ["view", "create", "update", "delete", "import", "export", "notify"] as const;
 
 const statusPill = (t: RoleTemplate) => <StatusPill kind="account" status={t.is_active ? "active" : "inactive"} />;
 const allowed = (g: RoleTemplateGrant) =>
@@ -104,14 +108,23 @@ function RoleTemplatesView() {
   const pathname = usePathname();
   const queryClient = useQueryClient();
   const { can } = useModuleAccess();
+  const { organizationId, choices } = useOrganization();
   const location = parseRecordPath(BASE, pathname);
 
   const [statusTarget, setStatusTarget] = useState<{ template: RoleTemplate; isActive: boolean } | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
 
+  const isFormMode = location.mode === "create" || location.mode === "edit";
+  const orgForGrantables = organizationId ?? choices[0]?.id ?? null;
+
   const query = useQuery({
     queryKey: roleTemplateQk.list(),
     queryFn: ({ signal }) => listRoleTemplates(signal),
+  });
+  const grantable = useQuery({
+    queryKey: orgForGrantables ? roleQk.grantableModules(orgForGrantables) : ["roles", "grantable-modules", "none"],
+    queryFn: ({ signal }) => listGrantableModules(orgForGrantables!, signal),
+    enabled: isFormMode && Boolean(orgForGrantables),
   });
   const templates = query.data ?? [];
 
@@ -194,10 +207,38 @@ function RoleTemplatesView() {
         />
       );
     }
+    if (orgForGrantables && grantable.isPending) {
+      return (
+        <SkeletonStack>
+          <Skeleton shape="block" />
+          <Skeleton shape="block" />
+        </SkeletonStack>
+      );
+    }
+    if (orgForGrantables && grantable.isError) {
+      return (
+        <EmptyState
+          size="lg"
+          tone="danger"
+          title="We couldn't load the module list"
+          description={describeApiError(grantable.error, "template")}
+          actions={
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={() => go(existing ? `${BASE}/${existing.id}` : BASE)}>
+                Cancel
+              </Button>
+              <Button onClick={() => void grantable.refetch()}>Try again</Button>
+            </div>
+          }
+        />
+      );
+    }
+    const resolvedModules = orgForGrantables && grantable.data ? grantable.data : [...DEFAULT_GRANTABLE_FALLBACK];
     return (
       <RoleTemplateForm
-        key={existing?.id ?? "new"}
+        key={`${existing?.id ?? "new"}:${resolvedModules.map((m) => m.module_code).join(",")}`}
         template={existing}
+        grantableModules={resolvedModules}
         onCancel={() => go(existing ? `${BASE}/${existing.id}` : BASE)}
         onCreate={async (input) => {
           const created = await create.mutateAsync(input);

@@ -74,6 +74,7 @@ export const roleQk = {
   all: (organizationId: string) => ["roles", organizationId] as const,
   list: (organizationId: string) => ["roles", organizationId, "list"] as const,
   detail: (organizationId: string, roleId: string) => ["roles", organizationId, "detail", roleId] as const,
+  grantableModules: (organizationId: string) => ["roles", organizationId, "grantable-modules"] as const,
 };
 
 export const staffQk = {

@@ -7,6 +7,7 @@ import { NoOrganization, useOrganizationId } from "@/app/admin/_components/organ
 import { Can, useModuleAccess } from "@/components/ability-provider";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { DestructiveDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PlusIcon, UserIcon } from "@/components/ui/icons";
 import { Pill } from "@/components/ui/pill";
@@ -17,11 +18,13 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Table } from "@/components/ui/table";
 import type { ColumnDef } from "@/components/ui/table";
 import { toast } from "@/components/ui/toaster";
+import { ApiError } from "@/lib/api-client";
 import { listAllBranches } from "@/lib/api/branches";
 import { describeApiError } from "@/lib/api/errors";
 import { listRoles } from "@/lib/api/roles";
-import { changeStaffAssignmentWithMessage, getStaffAssignment, listStaffAssignments, setStaffActive } from "@/lib/api/staff";
+import { changeStaffAssignmentWithMessage, deleteStaffAssignment, getStaffAssignment, listStaffAssignments, setStaffActive } from "@/lib/api/staff";
 import type { StaffAssignment } from "@/lib/api/staff";
+import { useAuth } from "@/lib/auth-context";
 import { MODULE_CODES } from "@/lib/constants/modules";
 import { useOrganization } from "@/lib/organization-context";
 import { branchQk, roleQk, staffQk } from "@/lib/query-keys";
@@ -67,6 +70,7 @@ function go(path: string) {
 function StaffView({ organizationId }: { organizationId: string }) {
   const pathname = usePathname();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const { can } = useModuleAccess();
   const { hasBranches } = useOrganization();
   const location = parseRecordPath(BASE, pathname);
@@ -74,6 +78,8 @@ function StaffView({ organizationId }: { organizationId: string }) {
   const [pageSize, setPageSize] = useState(20);
   const [roleFilter, setRoleFilter] = useState(ALL_FILTER);
   const [branchFilter, setBranchFilter] = useState(ALL_FILTER);
+  const [deleteTarget, setDeleteTarget] = useState<StaffAssignment | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const params = {
     page,
     pageSize,
@@ -106,9 +112,32 @@ function StaffView({ organizationId }: { organizationId: string }) {
     mutationFn: ({ assignment, isActive }: { assignment: StaffAssignment; isActive: boolean }) => setStaffActive(organizationId, assignment.id, isActive),
     onSuccess: (a) => {
       saved();
+      void queryClient.invalidateQueries({ queryKey: roleQk.all(organizationId) });
       toast.success(a.is_active ? "Access switched on" : "Access switched off", { body: "It applies on their next request." });
     },
     onError: (error) => toast.error("Couldn't change their access", { body: describeApiError(error, "person") }),
+  });
+  const remove = useMutation({
+    mutationFn: (assignmentId: string) => deleteStaffAssignment(organizationId, assignmentId),
+    onSuccess: () => {
+      saved();
+      void queryClient.invalidateQueries({ queryKey: roleQk.all(organizationId) });
+      setDeleteTarget(null);
+      setDeleteError(null);
+      toast.success("Assignment deleted");
+      go(BASE);
+    },
+    onError: (error) => {
+      if (error instanceof ApiError && error.code === "last_owner_assignment") {
+        setDeleteError("The organization must keep at least one active Owner.");
+        return;
+      }
+      if (error instanceof ApiError && error.code === "own_assignment") {
+        setDeleteError("You can't delete your own assignment. Ask another Owner.");
+        return;
+      }
+      setDeleteError(describeApiError(error, "person"));
+    },
   });
 
   if (list.isError && !list.data) {
@@ -122,6 +151,7 @@ function StaffView({ organizationId }: { organizationId: string }) {
   const isLastOwner = (a: StaffAssignment) => onePage && a.role.code === "OWNER" && a.is_active && activeOwners.length === 1;
 
   const canUpdate = can("update", MODULE);
+  const canDelete = can("delete", MODULE);
   const addStaff = (label: string, icon = false) => (
     <Can I="create" a={MODULE}>
       <Button onClick={() => go(`${BASE}/new`)}>
@@ -234,6 +264,7 @@ function StaffView({ organizationId }: { organizationId: string }) {
   );
 
   return (
+    <>
     <RecordWorkspace
       fit
       inlineToasts={false}
@@ -292,17 +323,9 @@ function StaffView({ organizationId }: { organizationId: string }) {
           className="rounded-none border-none shadow-none"
         />
       )}
-      identity={(a, api) => ({
-        avatar: <Avatar initials={initialsOf(a)} size={48} />,
-        name: nameOf(a),
-        status: status(a),
-        meta: (
-          <>
-            {a.role.name} · {where(a)}
-          </>
-        ),
-        primary: canUpdate && !isLastOwner(a) ? { label: "Change role", onClick: () => api.edit(a) } : undefined,
-        menu:
+      identity={(a, api) => {
+        const isOwn = Boolean(user?.id && user.id === a.user_id);
+        const toggleItems =
           !canUpdate || isLastOwner(a)
             ? []
             : [
@@ -328,8 +351,33 @@ function StaffView({ organizationId }: { organizationId: string }) {
                           onConfirm: () => toggle.mutate({ assignment: a, isActive: true }),
                         }),
                     },
-              ],
-      })}
+              ];
+        const deleteItems =
+          canDelete && !isOwn && !isLastOwner(a)
+            ? [
+                {
+                  label: "Delete assignment",
+                  destructive: true,
+                  onClick: () => {
+                    setDeleteError(null);
+                    setDeleteTarget(a);
+                  },
+                },
+              ]
+            : [];
+        return {
+          avatar: <Avatar initials={initialsOf(a)} size={48} />,
+          name: nameOf(a),
+          status: status(a),
+          meta: (
+            <>
+              {a.role.name} · {where(a)}
+            </>
+          ),
+          primary: canUpdate && !isLastOwner(a) ? { label: "Change role", onClick: () => api.edit(a) } : undefined,
+          menu: [...toggleItems, ...deleteItems],
+        };
+      }}
       stats={(a) => [
         { label: "Role", value: a.role.name },
         { label: "Where", value: where(a) },
@@ -374,6 +422,32 @@ function StaffView({ organizationId }: { organizationId: string }) {
         },
       }}
     />
+
+    <DestructiveDialog
+      open={Boolean(deleteTarget)}
+      onOpenChange={(open) => {
+        if (!open) {
+          setDeleteTarget(null);
+          setDeleteError(null);
+        }
+      }}
+      title={deleteTarget ? `Delete ${nameOf(deleteTarget)}'s assignment?` : ""}
+      description={
+        deleteTarget
+          ? `This removes ${nameOf(deleteTarget)}'s ${deleteTarget.role.name} role and their permission overrides for good. Switch it off instead if they may come back.`
+          : ""
+      }
+      confirmLabel="Delete assignment"
+      loading={remove.isPending}
+      loadingLabel="Deleting"
+      error={deleteError ?? undefined}
+      onConfirm={() => {
+        if (!deleteTarget) return;
+        setDeleteError(null);
+        remove.mutate(deleteTarget.id);
+      }}
+    />
+    </>
   );
 }
 

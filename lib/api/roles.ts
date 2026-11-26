@@ -9,6 +9,15 @@
  */
 import { apiRequest } from "@/lib/api-client";
 
+export type GrantAction = "view" | "create" | "update" | "delete" | "import" | "export" | "notify";
+
+export interface GrantableModule {
+  module_code: string;
+  module_name: string;
+  sno: number;
+  actions: GrantAction[];
+}
+
 /** What a role may do on one module (the same seven actions `/me` reports). */
 export interface RoleGrant {
   module_code: string;
@@ -38,7 +47,10 @@ export interface RoleGrantInput {
   view: boolean;
   create: boolean;
   update: boolean;
+  delete?: boolean;
+  import?: boolean;
   export?: boolean;
+  notify?: boolean;
 }
 
 export interface RoleCreateInput {
@@ -76,4 +88,8 @@ export function updateRole(organizationId: string, roleId: string, changes: Role
 
 export function changeRoleStatus(organizationId: string, roleId: string, isActive: boolean): Promise<Role> {
   return apiRequest<Role>(`${base(organizationId)}/${roleId}/status`, { method: "PATCH", body: { is_active: isActive } });
+}
+
+export function listGrantableModules(organizationId: string, signal?: AbortSignal): Promise<GrantableModule[]> {
+  return apiRequest<GrantableModule[]>(`/v1/organizations/${organizationId}/grantable-modules`, { signal });
 }

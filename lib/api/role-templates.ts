@@ -17,7 +17,10 @@ export interface RoleTemplateGrant {
   view: boolean;
   create: boolean;
   update: boolean;
+  delete: boolean;
+  import: boolean;
   export: boolean;
+  notify: boolean;
 }
 
 export interface RoleTemplate {

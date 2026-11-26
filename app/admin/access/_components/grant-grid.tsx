@@ -3,33 +3,43 @@
 import { AlertCircleIcon } from "@/components/ui/icons";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import type { RoleGrantInput } from "@/lib/api/roles";
+import type { GrantAction, GrantableModule, RoleGrantInput } from "@/lib/api/roles";
 
-export type GrantAction = "view" | "create" | "update" | "export";
-
-export interface ModuleRowConfig {
-  code: string;
-  defaultName: string;
-  actions: readonly GrantAction[];
-  hint?: string;
-}
-
-export const GRANT_MODULES: readonly ModuleRowConfig[] = [
-  { code: "ORGANIZATIONS", defaultName: "Organizations", actions: ["view", "update"] },
-  { code: "BRANCHES", defaultName: "Branches", actions: ["view", "create", "update"] },
-  { code: "ROLES", defaultName: "Roles", actions: ["view", "create", "update"] },
-  { code: "USER_ROLES", defaultName: "Staff assignments", actions: ["view", "create", "update"] },
-  { code: "EVENTS", defaultName: "Events", actions: ["view", "create", "update"] },
-  { code: "CUSTOMERS", defaultName: "Clients", actions: ["view", "create", "update"] },
-  {
-    code: "REGISTRATIONS",
-    defaultName: "Guests",
-    actions: ["view", "create", "update", "export"],
-    hint: "Export lets them download the guest list with every guest's mobile.",
-  },
+export const ALL_GRANT_ACTIONS: readonly GrantAction[] = [
+  "view",
+  "create",
+  "update",
+  "delete",
+  "import",
+  "export",
+  "notify",
 ];
 
-export type GrantFlags = { view: boolean; create: boolean; update: boolean; export: boolean };
+const ACTION_HEADERS: Record<GrantAction, string> = {
+  view: "View",
+  create: "Create",
+  update: "Update",
+  delete: "Delete",
+  import: "Import",
+  export: "Export",
+  notify: "Notify",
+};
+
+/**
+ * Fallback used only when the Super Admin opens Role Templates on a brand-new platform before any organization exists
+ * to query `/organizations/:id/grantable-modules`. As soon as any organization exists, the API list replaces this.
+ */
+export const DEFAULT_GRANTABLE_FALLBACK: readonly GrantableModule[] = [
+  { module_code: "ORGANIZATIONS", module_name: "Organizations", sno: 1, actions: ["view", "update", "import", "export", "notify"] },
+  { module_code: "BRANCHES", module_name: "Branches", sno: 2, actions: ALL_GRANT_ACTIONS.slice() },
+  { module_code: "ROLES", module_name: "Roles", sno: 3, actions: ALL_GRANT_ACTIONS.slice() },
+  { module_code: "USER_ROLES", module_name: "Staff Assignments", sno: 4, actions: ALL_GRANT_ACTIONS.slice() },
+  { module_code: "EVENTS", module_name: "Events", sno: 5, actions: ALL_GRANT_ACTIONS.slice() },
+  { module_code: "CUSTOMERS", module_name: "Clients", sno: 6, actions: ALL_GRANT_ACTIONS.slice() },
+  { module_code: "REGISTRATIONS", module_name: "Guests", sno: 7, actions: ALL_GRANT_ACTIONS.slice() },
+];
+
+export type GrantFlags = Record<GrantAction, boolean>;
 export type GrantState = Record<string, GrantFlags>;
 
 export interface GrantSourceItem {
@@ -37,53 +47,88 @@ export interface GrantSourceItem {
   view: boolean;
   create: boolean;
   update: boolean;
-  export: boolean;
+  delete?: boolean;
+  import?: boolean;
+  export?: boolean;
+  notify?: boolean;
 }
 
-export function initialGrantState(grants?: readonly GrantSourceItem[]): GrantState {
+const emptyFlags = (): GrantFlags => ({
+  view: false,
+  create: false,
+  update: false,
+  delete: false,
+  import: false,
+  export: false,
+  notify: false,
+});
+
+export function sortGrantableModules(modules: readonly GrantableModule[]): GrantableModule[] {
+  return [...modules].sort((a, b) => a.sno - b.sno || a.module_name.localeCompare(b.module_name));
+}
+
+export function initialGrantState(
+  grants: readonly GrantSourceItem[] | undefined,
+  modules: readonly GrantableModule[],
+): GrantState {
   const byCode = new Map(grants?.map((g) => [g.module_code, g]) ?? []);
   const state: GrantState = {};
-  for (const mod of GRANT_MODULES) {
-    const existing = byCode.get(mod.code);
+  for (const mod of modules) {
+    const existing = byCode.get(mod.module_code);
     const hasCreate = mod.actions.includes("create") && Boolean(existing?.create);
     const hasUpdate = mod.actions.includes("update") && Boolean(existing?.update);
+    const hasDelete = mod.actions.includes("delete") && Boolean(existing?.delete);
+    const hasImport = mod.actions.includes("import") && Boolean(existing?.import);
     const hasExport = mod.actions.includes("export") && Boolean(existing?.export);
-    const hasView = Boolean(existing?.view) || hasCreate || hasUpdate || hasExport;
-    state[mod.code] = { view: hasView, create: hasCreate, update: hasUpdate, export: hasExport };
+    const hasNotify = mod.actions.includes("notify") && Boolean(existing?.notify);
+    const hasView = Boolean(existing?.view) || hasCreate || hasUpdate || hasDelete || hasImport || hasExport || hasNotify;
+    state[mod.module_code] = {
+      view: hasView,
+      create: hasCreate,
+      update: hasUpdate,
+      delete: hasDelete,
+      import: hasImport,
+      export: hasExport,
+      notify: hasNotify,
+    };
   }
   return state;
 }
 
 export function grantsEqual(a: GrantState, b: GrantState, visibleCodes: string[]): boolean {
   return visibleCodes.every((code) => {
-    const left = a[code];
-    const right = b[code];
-    return left?.view === right?.view && left?.create === right?.create && left?.update === right?.update && left?.export === right?.export;
+    const left = a[code] ?? emptyFlags();
+    const right = b[code] ?? emptyFlags();
+    return ALL_GRANT_ACTIONS.every((action) => Boolean(left[action]) === Boolean(right[action]));
   });
 }
 
 /**
- * Every module, hidden rows included: the API replaces the whole grant set, so a row hidden here (Branches, when the
- * organization has no branches) must send back what the role or template already holds, or saving would remove it.
- * Hidden rows can't be changed in the form, so their state is still the stored grant (none for a new one). Never loop
- * over only the visible modules here.
+ * Every module, hidden rows included: the API replaces the role's whole grant set, so a hidden Branches row must
+ * still send what the role holds, or saving would remove it. Sends all seven actions for every granted module so
+ * unchecked optional actions are cleared on update rather than retained.
  */
-export function toGrantPayload(grants: GrantState): RoleGrantInput[] {
+export function toGrantPayload(grants: GrantState, modules: readonly GrantableModule[]): RoleGrantInput[] {
   const result: RoleGrantInput[] = [];
-  for (const mod of GRANT_MODULES) {
-    const g = grants[mod.code] ?? { view: false, create: false, update: false, export: false };
+  for (const mod of modules) {
+    const g = grants[mod.module_code] ?? emptyFlags();
     const view = Boolean(g.view);
-    const create = mod.actions.includes("create") ? Boolean(g.create) : false;
-    const update = mod.actions.includes("update") ? Boolean(g.update) : false;
-    const supportsExport = mod.actions.includes("export");
-    const canExport = supportsExport ? Boolean(g.export) : false;
-    if (view || create || update || canExport) {
+    const create = mod.actions.includes("create") && Boolean(g.create);
+    const update = mod.actions.includes("update") && Boolean(g.update);
+    const del = mod.actions.includes("delete") && Boolean(g.delete);
+    const imp = mod.actions.includes("import") && Boolean(g.import);
+    const exp = mod.actions.includes("export") && Boolean(g.export);
+    const notify = mod.actions.includes("notify") && Boolean(g.notify);
+    if (view || create || update || del || imp || exp || notify) {
       result.push({
-        module_code: mod.code,
+        module_code: mod.module_code,
         view,
         create,
         update,
-        ...(supportsExport ? { export: canExport } : {}),
+        delete: del,
+        import: imp,
+        export: exp,
+        notify,
       });
     }
   }
@@ -91,61 +136,54 @@ export function toGrantPayload(grants: GrantState): RoleGrantInput[] {
 }
 
 export function toggleGrantFlag(grants: GrantState, moduleCode: string, action: GrantAction, checked: boolean): GrantState {
-  const current = grants[moduleCode] ?? { view: false, create: false, update: false, export: false };
-  let next = { ...current };
-  if (action === "view") {
-    next = checked ? { ...current, view: true } : { view: false, create: false, update: false, export: false };
-  } else if (action === "create") {
-    next = checked ? { ...current, view: true, create: true } : { ...current, create: false };
-  } else if (action === "update") {
-    next = checked ? { ...current, view: true, update: true } : { ...current, update: false };
-  } else if (action === "export") {
-    next = checked ? { ...current, view: true, export: true } : { ...current, export: false };
-  }
+  const current = grants[moduleCode] ?? emptyFlags();
+  const next: GrantFlags =
+    action === "view"
+      ? checked
+        ? { ...current, view: true }
+        : emptyFlags()
+      : checked
+        ? { ...current, view: true, [action]: true }
+        : { ...current, [action]: false };
   return { ...grants, [moduleCode]: next };
 }
 
 interface GrantGridProps {
-  visibleModules: readonly ModuleRowConfig[];
-  moduleNames: Record<string, string>;
+  visibleModules: readonly GrantableModule[];
   grants: GrantState;
   errors: Record<string, string>;
   onToggle: (moduleCode: string, action: GrantAction, checked: boolean) => void;
 }
 
-/** Shared module × action checkbox matrix used by both custom roles and role templates. */
-export function GrantGrid({ visibleModules, moduleNames, grants, errors, onToggle }: GrantGridProps) {
+/** Shared dynamic 7-column module × action matrix built from `GET /grantable-modules`. */
+export function GrantGrid({ visibleModules, grants, errors, onToggle }: GrantGridProps) {
   return (
     <Card>
       <CardHeader
         title="Access"
-        subtitle="Ticking Create, Update or Export also ticks View. Unticking View clears the row."
+        subtitle="Ticking any other box also ticks View. Unticking View clears the row."
       />
-      <div className="overflow-hidden rounded-sm border border-border">
-        <div className="hidden grid-cols-[1fr_76px_76px_76px_76px] items-center border-b border-border bg-surface-2 px-4 py-2.5 sm:grid">
+      <div className="overflow-x-auto rounded-sm border border-border">
+        <div className="hidden min-w-[640px] grid-cols-[minmax(160px,1fr)_repeat(7,64px)] items-center border-b border-border bg-surface-2 px-4 py-2.5 sm:grid">
           <span className="type-label text-text-soft">Module</span>
-          <span className="type-label text-center text-text-soft">View</span>
-          <span className="type-label text-center text-text-soft">Create</span>
-          <span className="type-label text-center text-text-soft">Update</span>
-          <span className="type-label text-center text-text-soft">Export</span>
+          {ALL_GRANT_ACTIONS.map((action) => (
+            <span key={action} className="type-label text-center text-text-soft">
+              {ACTION_HEADERS[action]}
+            </span>
+          ))}
         </div>
-        <div className="divide-y divide-border">
+        <div className="divide-y divide-border sm:min-w-[640px]">
           {visibleModules.map((mod) => {
-            const label = moduleNames[mod.code] ?? mod.defaultName;
-            const row = grants[mod.code] ?? { view: false, create: false, update: false, export: false };
-            const rowError = errors[mod.code];
-            const canCreate = mod.actions.includes("create");
-            const canUpdate = mod.actions.includes("update");
-            const canExport = mod.actions.includes("export");
+            const row = grants[mod.module_code] ?? emptyFlags();
+            const rowError = errors[mod.module_code];
 
             return (
               <div
-                key={mod.code}
-                className="flex flex-col gap-3 px-4 py-3 sm:grid sm:grid-cols-[1fr_76px_76px_76px_76px] sm:items-center sm:gap-0"
+                key={mod.module_code}
+                className="flex flex-col gap-3 px-4 py-3 sm:grid sm:grid-cols-[minmax(160px,1fr)_repeat(7,64px)] sm:items-center sm:gap-0"
               >
                 <div className="flex flex-col gap-1 pr-2">
-                  <span className="type-body font-medium text-text">{label}</span>
-                  {mod.hint && <span className="text-[11.5px] text-text-faint">{mod.hint}</span>}
+                  <span className="type-body font-medium text-text">{mod.module_name}</span>
                   {rowError && (
                     <p role="alert" className="m-0 flex items-center gap-1.5 text-[11.5px] text-danger-text">
                       <AlertCircleIcon className="size-3 flex-none" />
@@ -154,98 +192,42 @@ export function GrantGrid({ visibleModules, moduleNames, grants, errors, onToggl
                   )}
                 </div>
 
-                <div className="flex flex-wrap items-center gap-5 sm:contents">
-                  <div className="flex items-center sm:justify-center">
-                    <div className="sm:hidden">
-                      <Checkbox
-                        checked={row.view}
-                        label="View"
-                        onCheckedChange={(checked) => onToggle(mod.code, "view", checked)}
-                      />
-                    </div>
-                    <div className="hidden sm:flex">
-                      <Checkbox
-                        checked={row.view}
-                        aria-label={`${label} View`}
-                        onCheckedChange={(checked) => onToggle(mod.code, "view", checked)}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center sm:justify-center">
-                    {canCreate ? (
-                      <>
-                        <div className="sm:hidden">
-                          <Checkbox
-                            checked={row.create}
-                            label="Create"
-                            onCheckedChange={(checked) => onToggle(mod.code, "create", checked)}
-                          />
-                        </div>
-                        <div className="hidden sm:flex">
-                          <Checkbox
-                            checked={row.create}
-                            aria-label={`${label} Create`}
-                            onCheckedChange={(checked) => onToggle(mod.code, "create", checked)}
-                          />
-                        </div>
-                      </>
-                    ) : (
-                      <span className="hidden type-body-sm text-text-faint sm:inline">—</span>
-                    )}
-                  </div>
-
-                  <div className="flex items-center sm:justify-center">
-                    {canUpdate ? (
-                      <>
-                        <div className="sm:hidden">
-                          <Checkbox
-                            checked={row.update}
-                            label="Update"
-                            onCheckedChange={(checked) => onToggle(mod.code, "update", checked)}
-                          />
-                        </div>
-                        <div className="hidden sm:flex">
-                          <Checkbox
-                            checked={row.update}
-                            aria-label={`${label} Update`}
-                            onCheckedChange={(checked) => onToggle(mod.code, "update", checked)}
-                          />
-                        </div>
-                      </>
-                    ) : (
-                      <span className="hidden type-body-sm text-text-faint sm:inline">—</span>
-                    )}
-                  </div>
-
-                  <div className="flex items-center sm:justify-center">
-                    {canExport ? (
-                      <>
-                        <div className="sm:hidden">
-                          <Checkbox
-                            checked={row.export}
-                            label="Export"
-                            onCheckedChange={(checked) => onToggle(mod.code, "export", checked)}
-                          />
-                        </div>
-                        <div className="hidden sm:flex">
-                          <Checkbox
-                            checked={row.export}
-                            aria-label={`${label} Export`}
-                            onCheckedChange={(checked) => onToggle(mod.code, "export", checked)}
-                          />
-                        </div>
-                      </>
-                    ) : (
-                      <span className="hidden type-body-sm text-text-faint sm:inline">—</span>
-                    )}
-                  </div>
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-2 sm:contents">
+                  {ALL_GRANT_ACTIONS.map((action) => {
+                    const supported = mod.actions.includes(action);
+                    const label = ACTION_HEADERS[action];
+                    return (
+                      <div key={action} className="flex items-center sm:justify-center">
+                        {supported ? (
+                          <>
+                            <div className="sm:hidden">
+                              <Checkbox
+                                checked={row[action]}
+                                label={label}
+                                onCheckedChange={(checked) => onToggle(mod.module_code, action, checked)}
+                              />
+                            </div>
+                            <div className="hidden sm:flex">
+                              <Checkbox
+                                checked={row[action]}
+                                aria-label={`${mod.module_name} ${label}`}
+                                onCheckedChange={(checked) => onToggle(mod.module_code, action, checked)}
+                              />
+                            </div>
+                          </>
+                        ) : (
+                          <span className="hidden type-body-sm text-text-faint sm:inline">—</span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             );
           })}
         </div>
       </div>
+      <p className="m-0 mt-3 type-body-sm text-text-faint">Delete, import and notify take effect where a screen offers them.</p>
     </Card>
   );
 }

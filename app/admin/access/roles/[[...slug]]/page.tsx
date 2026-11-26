@@ -24,7 +24,7 @@ import { toast } from "@/components/ui/toaster";
 import { ApiError } from "@/lib/api-client";
 import { describeApiError } from "@/lib/api/errors";
 import { listOrganizationRoleTemplates } from "@/lib/api/role-templates";
-import { changeRoleStatus, createRole, listRoles, updateRole } from "@/lib/api/roles";
+import { changeRoleStatus, createRole, listGrantableModules, listRoles, updateRole } from "@/lib/api/roles";
 import type { Role, RoleCreateInput, RoleGrant, RoleUpdateInput } from "@/lib/api/roles";
 import { listStaffAssignments } from "@/lib/api/staff";
 import type { StaffAssignment } from "@/lib/api/staff";
@@ -219,13 +219,18 @@ function RolesView({ organizationId }: { organizationId: string }) {
 
   const query = useQuery({ queryKey: roleQk.list(organizationId), queryFn: ({ signal }) => listRoles(organizationId, signal) });
   const canCreate = can("create", MODULE);
+  const isFormMode = location.mode === "create" || location.mode === "edit";
+  const grantable = useQuery({
+    queryKey: roleQk.grantableModules(organizationId),
+    queryFn: ({ signal }) => listGrantableModules(organizationId, signal),
+    enabled: isFormMode,
+  });
   const templates = useQuery({
     queryKey: roleTemplateQk.organizationOptions(organizationId),
     queryFn: ({ signal }) => listOrganizationRoleTemplates(organizationId, signal),
     enabled: location.mode === "create" && canCreate,
   });
   const roles = query.data ?? [];
-  const ownerRole = roles.find((r) => r.code === "OWNER");
 
   const invalidateRoles = () => {
     void queryClient.invalidateQueries({ queryKey: roleQk.all(organizationId) });
@@ -306,11 +311,37 @@ function RolesView({ organizationId }: { organizationId: string }) {
         />
       );
     }
+    if (grantable.isPending) {
+      return (
+        <SkeletonStack>
+          <Skeleton shape="block" />
+          <Skeleton shape="block" />
+        </SkeletonStack>
+      );
+    }
+    if (grantable.isError) {
+      return (
+        <EmptyState
+          size="lg"
+          tone="danger"
+          title="We couldn't load the module list"
+          description={describeApiError(grantable.error, "role")}
+          actions={
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={() => go(existing ? `${BASE}/${existing.id}` : BASE)}>
+                Cancel
+              </Button>
+              <Button onClick={() => void grantable.refetch()}>Try again</Button>
+            </div>
+          }
+        />
+      );
+    }
     return (
       <RoleForm
-        key={existing?.id ?? "new"}
+        key={`${existing?.id ?? "new"}:${grantable.data.map((m) => m.module_code).join(",")}`}
         role={existing}
-        ownerRole={ownerRole}
+        grantableModules={grantable.data}
         hasBranches={hasBranches}
         templates={!existing ? templates.data : undefined}
         onCancel={() => go(existing ? `${BASE}/${existing.id}` : BASE)}

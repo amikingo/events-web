@@ -82,7 +82,7 @@ export async function assignStaff(organizationId: string, input: StaffAssignment
   return { assignment: data, roleGiven: status === 201 };
 }
 
-export type StaffOverrideAction = "view" | "create" | "update" | "export";
+export type StaffOverrideAction = "view" | "create" | "update" | "delete" | "import" | "export" | "notify";
 
 export interface StaffOverrideModule {
   module_code: string;
@@ -105,7 +105,10 @@ export interface StaffOverrideInput {
   view?: boolean | null;
   create?: boolean | null;
   update?: boolean | null;
+  delete?: boolean | null;
+  import?: boolean | null;
   export?: boolean | null;
+  notify?: boolean | null;
 }
 
 export type StaffAssignmentUpdateResult = StaffAssignment & { role_changed?: boolean; override_count?: number };
@@ -141,4 +144,9 @@ export function replaceStaffOverrides(organizationId: string, assignmentId: stri
     method: "PUT",
     body: { overrides },
   });
+}
+
+/** `409 last_owner_assignment` or `409 own_assignment`. Returns 204. */
+export function deleteStaffAssignment(organizationId: string, assignmentId: string): Promise<void> {
+  return apiRequest<void>(`${base(organizationId)}/staff-assignments/${assignmentId}`, { method: "DELETE" });
 }
