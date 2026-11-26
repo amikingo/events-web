@@ -16,6 +16,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { Table } from "@/components/ui/table";
 import type { ColumnDef } from "@/components/ui/table";
 import { toast } from "@/components/ui/toaster";
+import { refreshAccessToken } from "@/lib/api-client";
 import { createBranch, getBranch, listBranches, setBranchActive, updateBranch } from "@/lib/api/branches";
 import type { Branch, BranchInput } from "@/lib/api/branches";
 import { describeApiError } from "@/lib/api/errors";
@@ -60,14 +61,17 @@ function BranchesView({ organizationId }: { organizationId: string }) {
   const pathname = usePathname();
   const queryClient = useQueryClient();
   const { can } = useModuleAccess();
+  const canView = can("read", MODULE);
   const location = parseRecordPath(BASE, pathname);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const params = { page, pageSize };
 
+  // In an organization without branches, `permissions.BRANCHES.view` is false (`feature_disabled`), so never call GET .../branches.
   const list = useQuery({
     queryKey: branchQk.list(organizationId, params),
     queryFn: ({ signal }) => listBranches(organizationId, params, signal),
+    enabled: canView,
     placeholderData: keepPreviousData,
   });
 
@@ -77,7 +81,7 @@ function BranchesView({ organizationId }: { organizationId: string }) {
   const detail = useQuery({
     queryKey: branchQk.detail(organizationId, openId ?? ""),
     queryFn: ({ signal }) => getBranch(organizationId, openId!, signal),
-    enabled: Boolean(openId) && list.isSuccess && !onPage,
+    enabled: canView && Boolean(openId) && list.isSuccess && !onPage,
   });
   const rows = list.data?.data ?? [];
   const branches = detail.data && !onPage ? [...rows, detail.data] : rows;
@@ -87,10 +91,12 @@ function BranchesView({ organizationId }: { organizationId: string }) {
 
   const create = useMutation({
     mutationFn: (input: BranchInput) => createBranch(organizationId, input),
-    onSuccess: () => {
+    onSuccess: async () => {
       saved();
-      // Adding a branch turns branches on for the organization (`has_branches`).
+      // Adding the first branch turns branches on for the organization (`has_branches`); refresh `/me` so Branches joins the menu.
       void queryClient.invalidateQueries({ queryKey: organizationQk.all() });
+      if (!canView) await refreshAccessToken().catch(() => undefined);
+      await queryClient.refetchQueries({ queryKey: ["user", "effective-access"] });
     },
   });
   const update = useMutation({
@@ -106,7 +112,7 @@ function BranchesView({ organizationId }: { organizationId: string }) {
     onError: (error) => toast.error("Couldn't change the branch", { body: describeApiError(error, "branch") }),
   });
 
-  if (list.isError) {
+  if (canView && list.isError) {
     return (
       <EmptyState
         size="lg"

@@ -7,7 +7,7 @@ import type { ReactNode } from "react";
 import { useUserEffectiveAccess } from "@/hooks/use-user-effective-access";
 import { useAuth } from "@/lib/auth-context";
 import { ALWAYS_ALLOWED_PATHS, DEMO_PAGES_ENABLED } from "@/lib/config/demo-pages";
-import { moduleForPath, normalizeModuleCode } from "@/lib/constants/modules";
+import { moduleForPath, MODULE_CODES, normalizeModuleCode } from "@/lib/constants/modules";
 import { buildAbility } from "@/lib/rbac/ability";
 import type { AbilityAction, AppAbility } from "@/lib/rbac/ability";
 import { buildModuleTree } from "@/lib/rbac/build-module-tree";
@@ -45,12 +45,22 @@ export function AbilityProvider({ children }: { children: ReactNode }) {
   const canViewPath = useCallback(
     (pathname: string) => {
       if (ALWAYS_ALLOWED_PATHS.includes(pathname)) return true;
+      const isPlatform = assignment !== null && assignment.organizationId === null;
+      if (pathname === "/admin/platform/roles" || pathname.startsWith("/admin/platform/roles/")) {
+        return isPlatform && canViewModule(MODULE_CODES.ROLES);
+      }
+      if (pathname === "/admin/platform/staff" || pathname.startsWith("/admin/platform/staff/")) {
+        return isPlatform && canViewModule(MODULE_CODES.USER_ROLES);
+      }
+      if (pathname === "/admin/branches/new") {
+        return canViewModule(MODULE_CODES.BRANCHES) || ability.can("create", MODULE_CODES.BRANCHES);
+      }
       const guardedBy = moduleForPath(pathname);
       if (guardedBy) return canViewModule(guardedBy);
       // No backend module owns it: a template demo page, open in development only.
       return DEMO_PAGES_ENABLED;
     },
-    [canViewModule],
+    [ability, assignment, canViewModule],
   );
 
   const value = useMemo<AccessContextValue>(

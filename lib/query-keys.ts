@@ -2,6 +2,7 @@ import type { BranchListParams } from "@/lib/api/branches";
 import type { ClientListParams } from "@/lib/api/clients";
 import type { EventListParams } from "@/lib/api/events";
 import type { OrganizationListParams } from "@/lib/api/organizations";
+import type { PlatformStaffListParams } from "@/lib/api/platform";
 import type { StaffListParams } from "@/lib/api/staff";
 import type { PersonListParams } from "@/lib/api/persons";
 import type { RegistrationListParams } from "@/lib/api/registrations";
@@ -96,4 +97,16 @@ export const roleTemplateQk = {
 export const moduleQk = {
   all: () => ["modules"] as const,
   tree: () => ["modules", "tree"] as const,
+};
+
+export const platformRoleQk = {
+  all: () => ["platform", "roles"] as const,
+  list: () => ["platform", "roles", "list"] as const,
+  detail: (roleId: string) => ["platform", "roles", "detail", roleId] as const,
+};
+
+export const platformStaffQk = {
+  all: () => ["platform", "staff"] as const,
+  list: (params: PlatformStaffListParams) => ["platform", "staff", "list", params] as const,
+  detail: (assignmentId: string) => ["platform", "staff", "detail", assignmentId] as const,
 };

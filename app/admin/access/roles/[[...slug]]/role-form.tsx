@@ -146,7 +146,7 @@ export function RoleForm({ role, grantableModules, hasBranches, templates, onCre
       return true;
     }
     if (err.code === "permission_denied") {
-      toast.error("You don't have permission to do this.");
+      toast.error(describeApiError(err, "role"));
       return true;
     }
     if (err.code === "role_template_inactive") {

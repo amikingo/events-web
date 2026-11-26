@@ -16,6 +16,7 @@ import {
   FileText,
   Image as ImageIcon,
   Inbox,
+  KeyRound,
   LayoutDashboard,
   LogOut,
   Settings,
@@ -98,7 +99,12 @@ function SidebarBehaviour({ pathname }: { pathname: string }) {
 function SidebarNav({ activeDomainId }: { activeDomainId: BusinessDomain }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { assignment } = useAuth();
   const { sidebarTree, ready } = useAccess();
+  const { can } = useModuleAccess();
+  const isPlatform = assignment !== null && assignment.organizationId === null;
+  const canPlatformRoles = isPlatform && can("read", MODULE_CODES.ROLES);
+  const canPlatformStaff = isPlatform && can("read", MODULE_CODES.USER_ROLES);
   const entries = moduleSidebarEntries(sidebarTree);
   const isCurrent = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
   // The demo pages, flat: a demo group's sub-pages (Payments → Orders, Payouts) become their own entries.
@@ -148,6 +154,21 @@ function SidebarNav({ activeDomainId }: { activeDomainId: BusinessDomain }) {
             />
           );
         })
+      )}
+      {ready && (canPlatformRoles || canPlatformStaff) && (
+        <SidebarAccordion
+          key="PLATFORM"
+          icon={<ShieldCheck />}
+          label="Platform"
+          items={[
+            ...(canPlatformRoles
+              ? [{ id: "PLATFORM_ROLES", label: "Platform roles", icon: <KeyRound />, active: isCurrent("/admin/platform/roles"), onSelect: () => router.push("/admin/platform/roles") }]
+              : []),
+            ...(canPlatformStaff
+              ? [{ id: "PLATFORM_STAFF", label: "Platform staff", icon: <Users />, active: isCurrent("/admin/platform/staff"), onSelect: () => router.push("/admin/platform/staff") }]
+              : []),
+          ]}
+        />
       )}
       {demo.length > 0 && (
         <SidebarAccordion
@@ -256,6 +277,12 @@ function DashboardShell({ children }: { children: ReactNode }) {
             items: [
               // Pages the role in use may open (the backend's menu) and the actions it may take.
               ...flattenModuleTree(sidebarTree).map((p) => ({ id: p.href, title: p.label, group: "Navigation" as const })),
+              ...(organization.isPlatform && can("read", MODULE_CODES.ROLES)
+                ? [{ id: "/admin/platform/roles", title: "Platform roles", group: "Navigation" as const }]
+                : []),
+              ...(organization.isPlatform && can("read", MODULE_CODES.USER_ROLES)
+                ? [{ id: "/admin/platform/staff", title: "Platform staff", group: "Navigation" as const }]
+                : []),
               ...(can("create", MODULE_CODES.ORGANIZATIONS) ? [{ id: "/admin/organizations/new", title: "Add an organization", group: "Actions" as const }] : []),
               ...(can("create", MODULE_CODES.BRANCHES) ? [{ id: "/admin/branches/new", title: "Add a branch", group: "Actions" as const }] : []),
               ...(can("create", MODULE_CODES.EVENTS)

@@ -308,7 +308,7 @@ export function RegistrationsTab({
         if (error.code === "permission_denied") {
           setTicketTarget(null);
           setSelectedTicketId("");
-          toast.error("You don't have permission to do this.");
+          toast.error(describeApiError(error, "registration"));
           return;
         }
       }

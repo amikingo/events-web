@@ -23,20 +23,35 @@ export function guestAuthMessage(error: unknown): string {
 export function describeApiError(error: unknown, noun = "item"): string {
   if (!(error instanceof ApiError)) return "Something went wrong. Try again.";
   switch (error.code) {
-    case "permission_denied":
+    case "permission_denied": {
+      const reason = (error.details as { reason?: string } | undefined)?.reason;
+      if (reason === "module_unavailable" || reason === "feature_disabled") {
+        return "This part of the app is switched off.";
+      }
       return "You don't have permission to do this.";
+    }
     case "grant_exceeds_own_access":
       return grantExceedsOwnAccessMessage(error.details);
     case "role_locked":
+      if (noun === "platform role") return "The Super Admin role can't be changed.";
       return noun === "template" ? "The Owner template can't be changed." : "The Owner role can't be changed.";
     case "role_template_inactive":
       return "This template is switched off. Pick another one or build the role yourself.";
     case "owner_not_overridable":
       return "Owners always have full access.";
     case "own_assignment":
-      return "You can't change your own access. Ask another Owner.";
+      return noun === "platform person"
+        ? "You can't change your own platform access. Ask another Super Admin."
+        : "You can't change your own access. Ask another Owner.";
+    case "last_super_admin":
+      return "The platform must keep at least one active Super Admin.";
     case "role_in_use": {
       const count = (error.details as { active_assignments?: number } | undefined)?.active_assignments;
+      if (noun === "platform role") {
+        return count !== undefined
+          ? `${count} platform staff still have this role. Give them another role first.`
+          : "Platform staff still have this role. Give them another role first.";
+      }
       return count !== undefined
         ? `${count} staff still have this role. Give them another role first, then switch it off.`
         : "Staff still have this role. Give them another role first, then switch it off.";
@@ -93,6 +108,16 @@ export function describeApiError(error: unknown, noun = "item"): string {
       return "The upload failed on the server. Try again later.";
     case "invalid_branch_state":
       return "The default branch can't be switched off. Make another branch the default first.";
+    case "module_protected":
+      return error.message.trim() || "This module can't be changed.";
+    case "module_in_use": {
+      const grants = (error.details as { grants?: number } | undefined)?.grants;
+      return grants !== undefined
+        ? `${grants} roles, templates or overrides still give access to this module. Remove those first.`
+        : "Roles, templates or overrides still give access to this module. Remove those first.";
+    }
+    case "invalid_module_state":
+      return error.message.trim() || "This module can't change state right now.";
     case "staff_assignment_not_found":
       return "That role isn't available any more. Pick another one.";
     case "not_found":
@@ -176,8 +201,13 @@ export function grantExceedsOwnAccessMessage(details: unknown, moduleNames?: Rec
 
 function conflictMessage(details: unknown, noun: string): string {
   const field = (details as { field?: string } | undefined)?.field;
-  if (field === "user_id") return "This person is already staff of another organization.";
-  if ((noun === "role" || noun === "template") && field === "code") return `Another ${noun} already uses this code.`;
-  if ((noun === "role" || noun === "template") && field === "name") return `Another ${noun} already has this name.`;
+  if (field === "user_id") {
+    return noun === "platform person"
+      ? "This person is staff of an organization, so they can't be platform staff."
+      : "This person is already staff of another organization.";
+  }
+  if (noun === "module" && field === "code") return "Another module already uses this code.";
+  if ((noun === "role" || noun === "platform role" || noun === "template") && field === "code") return `Another ${noun} already uses this code.`;
+  if ((noun === "role" || noun === "platform role" || noun === "template") && field === "name") return `Another ${noun} already has this name.`;
   return `Another ${noun} already uses that code or web address. Use a different one.`;
 }
