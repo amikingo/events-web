@@ -39,6 +39,7 @@ export interface Role {
   is_active: boolean;
   grant_count: number;
   member_count: number;
+  role_template: { id: string; code: string; name: string } | null;
   grants: RoleGrant[];
 }
 
@@ -57,6 +58,7 @@ export interface RoleCreateInput {
   code: string;
   name: string;
   description?: string | null;
+  role_template_id?: string;
   grants: RoleGrantInput[];
 }
 
@@ -69,8 +71,9 @@ export interface RoleUpdateInput {
 const base = (organizationId: string) => `/v1/organizations/${organizationId}/roles`;
 
 /** Every role of the organization (the API doesn't page this list). */
-export function listRoles(organizationId: string, signal?: AbortSignal): Promise<Role[]> {
-  return apiRequest<Role[]>(base(organizationId), { signal });
+export function listRoles(organizationId: string, signal?: AbortSignal, params?: { roleTemplateId?: string }): Promise<Role[]> {
+  const qs = params?.roleTemplateId ? `?role_template_id=${encodeURIComponent(params.roleTemplateId)}` : "";
+  return apiRequest<Role[]>(`${base(organizationId)}${qs}`, { signal });
 }
 
 export function getRole(organizationId: string, roleId: string, signal?: AbortSignal): Promise<Role> {

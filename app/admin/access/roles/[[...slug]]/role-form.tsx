@@ -36,6 +36,7 @@ type FieldErrors = {
   code?: string;
   name?: string;
   description?: string;
+  template?: string;
   grants: Record<string, string>;
 };
 
@@ -89,7 +90,7 @@ export function RoleForm({ role, grantableModules, hasBranches, templates, onCre
 
   const [start] = useState(() => startValues(role, orderedModules));
   const [values, setValues] = useState<Values>(start);
-  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [selectedTemplateId, setSelectedTemplateId] = useState("none");
   const [errors, setErrors] = useState<FieldErrors>({ grants: {} });
   const [failure, setFailure] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -101,6 +102,9 @@ export function RoleForm({ role, grantableModules, hasBranches, templates, onCre
 
   function applyTemplate(templateId: string) {
     setSelectedTemplateId(templateId);
+    setErrors((prev) => ({ ...prev, template: undefined, grants: {} }));
+    setFailure(null);
+    if (templateId === "none") return;
     const tpl = templates?.find((t) => t.id === templateId);
     if (!tpl) return;
     setValues((prev) => ({
@@ -109,8 +113,6 @@ export function RoleForm({ role, grantableModules, hasBranches, templates, onCre
       description: tpl.description ?? "",
       grants: initialGrantState(tpl.grants, orderedModules),
     }));
-    setErrors({ grants: {} });
-    setFailure(null);
   }
 
   function setField<K extends "code" | "name" | "description">(key: K, value: string) {
@@ -145,6 +147,12 @@ export function RoleForm({ role, grantableModules, hasBranches, templates, onCre
     }
     if (err.code === "permission_denied") {
       toast.error("You don't have permission to do this.");
+      return true;
+    }
+    if (err.code === "role_template_inactive") {
+      const msg = describeApiError(err, "role");
+      setErrors((prev) => ({ ...prev, template: msg }));
+      setFailure(msg);
       return true;
     }
     if (err.code === "conflict") {
@@ -209,6 +217,7 @@ export function RoleForm({ role, grantableModules, hasBranches, templates, onCre
           code: values.code.trim(),
           name: values.name.trim(),
           ...(values.description.trim() ? { description: values.description.trim() } : {}),
+          ...(selectedTemplateId && selectedTemplateId !== "none" ? { role_template_id: selectedTemplateId } : {}),
           grants: grantsPayload,
         });
       }
@@ -225,7 +234,7 @@ export function RoleForm({ role, grantableModules, hasBranches, templates, onCre
     else onCancel();
   }
 
-  const fieldErrorCount = [errors.code, errors.name, errors.description].filter(Boolean).length + Object.keys(errors.grants).length;
+  const fieldErrorCount = [errors.code, errors.name, errors.description, errors.template].filter(Boolean).length + Object.keys(errors.grants).length;
 
   return (
     <div className="flex flex-col gap-6">
@@ -314,11 +323,11 @@ export function RoleForm({ role, grantableModules, hasBranches, templates, onCre
               subtitle="Optional. Fills the name, description and access below. You can still change anything."
             />
             <div className="max-w-md">
-              <Field label="Template" htmlFor="rl-template">
+              <Field label="Template" htmlFor="rl-template" error={errors.template}>
                 <Select
                   id="rl-template"
                   placeholder="Choose a template"
-                  options={templates.map((t) => ({ value: t.id, label: t.name }))}
+                  options={[{ value: "none", label: "Build from scratch" }, ...templates.map((t) => ({ value: t.id, label: t.name }))]}
                   value={selectedTemplateId}
                   onValueChange={applyTemplate}
                 />

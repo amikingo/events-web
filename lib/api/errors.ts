@@ -29,6 +29,8 @@ export function describeApiError(error: unknown, noun = "item"): string {
       return grantExceedsOwnAccessMessage(error.details);
     case "role_locked":
       return noun === "template" ? "The Owner template can't be changed." : "The Owner role can't be changed.";
+    case "role_template_inactive":
+      return "This template is switched off. Pick another one or build the role yourself.";
     case "owner_not_overridable":
       return "Owners always have full access.";
     case "own_assignment":

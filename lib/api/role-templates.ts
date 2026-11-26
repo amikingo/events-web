@@ -50,6 +50,14 @@ export interface RoleTemplateUpdateInput {
   grants?: RoleGrantInput[];
 }
 
+export interface TemplateRole {
+  id: string;
+  code: string;
+  name: string;
+  is_active: boolean;
+  organization: { id: string; name: string; slug: string };
+}
+
 const BASE = "/v1/role-templates";
 
 export function listRoleTemplates(signal?: AbortSignal): Promise<RoleTemplate[]> {
@@ -74,4 +82,8 @@ export function changeRoleTemplateStatus(templateId: string, isActive: boolean):
 
 export function listOrganizationRoleTemplates(organizationId: string, signal?: AbortSignal): Promise<RoleTemplate[]> {
   return apiRequest<RoleTemplate[]>(`/v1/organizations/${organizationId}/role-templates`, { signal });
+}
+
+export function listTemplateRoles(templateId: string, signal?: AbortSignal): Promise<TemplateRole[]> {
+  return apiRequest<TemplateRole[]>(`${BASE}/${templateId}/roles`, { signal });
 }

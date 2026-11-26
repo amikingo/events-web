@@ -26,6 +26,7 @@ import {
   changeRoleTemplateStatus,
   createRoleTemplate,
   listRoleTemplates,
+  listTemplateRoles,
   updateRoleTemplate,
 } from "@/lib/api/role-templates";
 import type {
@@ -33,6 +34,7 @@ import type {
   RoleTemplateCreateInput,
   RoleTemplateGrant,
   RoleTemplateUpdateInput,
+  TemplateRole,
 } from "@/lib/api/role-templates";
 import { MODULE_CODES } from "@/lib/constants/modules";
 import { formatNumber } from "@/lib/format";
@@ -100,6 +102,58 @@ function TemplateGrants({ template }: { template: RoleTemplate }) {
           <Note icon={<InfoIcon />}>The Owner template always has full access and can&apos;t be changed.</Note>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Super Admin list of every organization's roles made from this template (`GET /v1/role-templates/:id/roles`). */
+function TemplateRoles({ templateId }: { templateId: string }) {
+  const query = useQuery({
+    queryKey: roleTemplateQk.roles(templateId),
+    queryFn: ({ signal }) => listTemplateRoles(templateId, signal),
+  });
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Note icon={<InfoIcon />}>Roles made from a template are copies. Editing a template never changes them.</Note>
+      {query.isPending ? (
+        <SkeletonStack>
+          <Skeleton shape="block" />
+          <Skeleton shape="block" />
+        </SkeletonStack>
+      ) : query.isError ? (
+        <EmptyState
+          size="sm"
+          tone="danger"
+          title="We couldn't load roles"
+          description={describeApiError(query.error, "role")}
+          actions={<Button variant="secondary" onClick={() => void query.refetch()}>Try again</Button>}
+        />
+      ) : query.data.length === 0 ? (
+        <EmptyState
+          size="sm"
+          icon={<ShieldIcon />}
+          title="No roles were made from this template yet"
+          description="When organizations start a role from this template, it appears here."
+        />
+      ) : (
+        <div>
+          <RecordHeading>Roles made from this template</RecordHeading>
+          <div className="divide-y divide-border overflow-hidden rounded-sm border border-border">
+            {query.data.map((r: TemplateRole) => (
+              <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                <div className="flex min-w-0 flex-col">
+                  <span className="truncate type-body font-medium text-text">{r.name}</span>
+                  <span className="truncate type-body-sm text-text-faint">
+                    {r.organization.name} · <code>{r.code}</code>
+                  </span>
+                </div>
+                <StatusPill kind="account" status={r.is_active ? "active" : "inactive"} size="sm" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -335,8 +389,11 @@ function RoleTemplatesView() {
         ]}
         panel={(t) => <TemplateGrants template={t} />}
         page={{
-          tabs: [{ id: "access", label: "Access" }],
-          content: (t) => <TemplateGrants template={t} />,
+          tabs: [
+            { id: "access", label: "Access" },
+            { id: "roles", label: "Roles" },
+          ],
+          content: (t, tab) => (tab === "roles" ? <TemplateRoles key={t.id} templateId={t.id} /> : <TemplateGrants template={t} />),
           rail: (t) => (
             <RecordRailCard title="Template">
               <RecordKv

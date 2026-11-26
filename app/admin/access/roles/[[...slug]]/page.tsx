@@ -15,6 +15,7 @@ import { Note } from "@/components/ui/note";
 import { Pill } from "@/components/ui/pill";
 import { RecordHeading, RecordKv, RecordRailCard } from "@/components/ui/record-view";
 import { RecordWorkspace, parseRecordPath, recordPath } from "@/components/ui/record-workspace";
+import { Select } from "@/components/ui/select";
 import { Skeleton, SkeletonStack } from "@/components/ui/skeleton";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Table } from "@/components/ui/table";
@@ -36,6 +37,7 @@ import { RoleForm } from "./role-form";
 
 const BASE = "/admin/access/roles";
 const MODULE = MODULE_CODES.ROLES;
+const ALL_FILTER = "all";
 const ACTIONS = ["view", "create", "update", "delete", "import", "export", "notify"] as const;
 
 const status = (r: Role) => <StatusPill kind="account" status={r.is_active ? "active" : "inactive"} />;
@@ -66,6 +68,7 @@ const columns: ColumnDef<Role>[] = [
         <div className="flex min-w-0 flex-col">
           <span className="type-body font-medium text-text">{r.name}</span>
           <span className="type-body-sm text-text-faint">{r.description ?? "No description"}</span>
+          {r.role_template && <span className="type-body-sm text-text-faint">Made from {r.role_template.name}</span>}
         </div>
       </div>
     ),
@@ -216,8 +219,14 @@ function RolesView({ organizationId }: { organizationId: string }) {
 
   const [statusTarget, setStatusTarget] = useState<{ role: Role; isActive: boolean } | null>(null);
   const [statusError, setStatusError] = useState<{ message: string; linkToStaff?: boolean } | null>(null);
+  const [templateFilter, setTemplateFilter] = useState(ALL_FILTER);
 
   const query = useQuery({ queryKey: roleQk.list(organizationId), queryFn: ({ signal }) => listRoles(organizationId, signal) });
+  const filteredQuery = useQuery({
+    queryKey: roleQk.list(organizationId, templateFilter),
+    queryFn: ({ signal }) => listRoles(organizationId, signal, { roleTemplateId: templateFilter }),
+    enabled: templateFilter !== ALL_FILTER,
+  });
   const canCreate = can("create", MODULE);
   const isFormMode = location.mode === "create" || location.mode === "edit";
   const grantable = useQuery({
@@ -231,10 +240,19 @@ function RolesView({ organizationId }: { organizationId: string }) {
     enabled: location.mode === "create" && canCreate,
   });
   const roles = query.data ?? [];
+  const tableRoles = templateFilter === ALL_FILTER ? roles : (filteredQuery.data ?? []);
+  const templateOptions = Array.from(
+    new Map(
+      roles
+        .filter((r): r is Role & { role_template: NonNullable<Role["role_template"]> } => Boolean(r.role_template))
+        .map((r) => [r.role_template.id, r.role_template]),
+    ).values(),
+  );
 
   const invalidateRoles = () => {
     void queryClient.invalidateQueries({ queryKey: roleQk.all(organizationId) });
     void queryClient.invalidateQueries({ queryKey: staffQk.all(organizationId) });
+    void queryClient.invalidateQueries({ queryKey: roleTemplateQk.all() });
     void queryClient.invalidateQueries({ queryKey: ["user", "effective-access"] });
   };
 
@@ -374,15 +392,30 @@ function RolesView({ organizationId }: { organizationId: string }) {
         list={({ onRowClick, activeRowId, highlightIds, onVisibleRowsChange }) => (
           <Table
             columns={columns}
-            data={roles}
+            data={tableRoles}
             getRowId={(r) => r.id}
             title="Roles"
-            loading={query.isPending}
+            loading={query.isPending || (templateFilter !== ALL_FILTER && filteredQuery.isPending)}
             onRowClick={onRowClick}
             activeRowId={activeRowId}
             highlightIds={highlightIds}
             onVisibleRowsChange={onVisibleRowsChange}
-            toolbarActions={newRoleButton}
+            toolbarActions={
+              templateOptions.length > 0 ? (
+                <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+                  <Select
+                    aria-label="Filter by template"
+                    value={templateFilter}
+                    onValueChange={setTemplateFilter}
+                    options={[{ value: ALL_FILTER, label: "All templates" }, ...templateOptions.map((t) => ({ value: t.id, label: t.name }))]}
+                    className="w-full sm:w-[190px]"
+                  />
+                  {newRoleButton}
+                </div>
+              ) : (
+                newRoleButton
+              )
+            }
             className="rounded-none border-none shadow-none"
           />
         )}
@@ -392,7 +425,12 @@ function RolesView({ organizationId }: { organizationId: string }) {
             avatar: <Avatar initials={r.name.slice(0, 2).toUpperCase()} size={48} />,
             name: r.name,
             status: status(r),
-            meta: <code>{r.code}</code>,
+            meta: (
+              <span className="inline-flex flex-wrap items-center gap-2">
+                <code>{r.code}</code>
+                {r.role_template && <Pill size="sm">Made from {r.role_template.name}</Pill>}
+              </span>
+            ),
             primary: !isOwner && canUpdate ? { label: "Edit role", onClick: () => api.edit(r) } : undefined,
             menu:
               isOwner || !canUpdate

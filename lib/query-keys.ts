@@ -72,7 +72,8 @@ export const registrationQk = {
 
 export const roleQk = {
   all: (organizationId: string) => ["roles", organizationId] as const,
-  list: (organizationId: string) => ["roles", organizationId, "list"] as const,
+  list: (organizationId: string, roleTemplateId?: string) =>
+    roleTemplateId ? (["roles", organizationId, "list", roleTemplateId] as const) : (["roles", organizationId, "list"] as const),
   detail: (organizationId: string, roleId: string) => ["roles", organizationId, "detail", roleId] as const,
   grantableModules: (organizationId: string) => ["roles", organizationId, "grantable-modules"] as const,
 };
@@ -88,6 +89,7 @@ export const roleTemplateQk = {
   all: () => ["role-templates"] as const,
   list: () => ["role-templates", "list"] as const,
   detail: (templateId: string) => ["role-templates", "detail", templateId] as const,
+  roles: (templateId: string) => ["role-templates", "detail", templateId, "roles"] as const,
   organizationOptions: (organizationId: string) => ["role-templates", "organization", organizationId] as const,
 };
 
