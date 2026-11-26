@@ -292,7 +292,7 @@ export function OrganizationForm({ organization, onCreate, onSave, onCancel }: O
   }));
 
   return (
-    <div className="flex w-full max-w-6xl flex-col gap-6">
+    <div className="flex w-full mx-auto max-w-6xl flex-col gap-6">
       <div className="flex flex-col gap-3">
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div className="flex flex-col gap-0.5">

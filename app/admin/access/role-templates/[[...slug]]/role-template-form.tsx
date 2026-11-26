@@ -288,7 +288,7 @@ export function RoleTemplateForm({ template, grantableModules, onCreate, onUpdat
   const iconOf = (code: string) => AREA_ICONS[code] ?? iconForModule(code, null);
 
   return (
-    <div className="flex w-full max-w-7xl flex-col gap-6">
+    <div className="flex w-full mx-auto max-w-7xl flex-col gap-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div className="flex flex-col gap-0.5">
           <h1 className="type-h1 m-0 text-text">{editing ? `Edit ${template!.name}` : "New template"}</h1>
