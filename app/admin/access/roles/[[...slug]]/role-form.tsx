@@ -1,22 +1,26 @@
 "use client";
 
-import { useState } from "react";
-import { Breadcrumb } from "@/components/ui/breadcrumb";
+import { Briefcase, Building, Calendar, GitBranch, ShieldCheck, UserCog, Users } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { createElement, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ErrorBanner } from "@/components/ui/error-banner";
 import { Field } from "@/components/ui/field";
+import { IconTile } from "@/components/ui/icon-tile";
 import { Input } from "@/components/ui/input";
+import { Pill } from "@/components/ui/pill";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/toaster";
 import { ApiError } from "@/lib/api-client";
+import { iconForModule } from "@/lib/rbac/module-sidebar";
 import { describeApiError, grantExceedsOwnAccessMessage } from "@/lib/api/errors";
 import type { RoleTemplate } from "@/lib/api/role-templates";
 import type { GrantAction, GrantableModule, Role, RoleCreateInput, RoleGrantInput, RoleUpdateInput } from "@/lib/api/roles";
 import {
-  GrantGrid,
   grantsEqual,
   initialGrantState,
   sortGrantableModules,
@@ -41,6 +45,56 @@ type FieldErrors = {
 };
 
 const CODE_PATTERN = /^[A-Za-z0-9_]+$/;
+
+/** "Event Coordinator" → "EVENT_COORDINATOR": the code suggested from the name, until the person types their own. */
+const codeFrom = (name: string) =>
+  name
+    .toUpperCase()
+    .normalize("NFKD")
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80);
+
+/** Every right, in the order people read them, with plain labels. */
+const RIGHTS: { action: GrantAction; label: string }[] = [
+  { action: "view", label: "View" },
+  { action: "create", label: "Create" },
+  { action: "update", label: "Update" },
+  { action: "delete", label: "Delete" },
+  { action: "import", label: "Import" },
+  { action: "export", label: "Export" },
+  { action: "notify", label: "Notify" },
+];
+
+/** Areas in groups people recognise. A module not listed here lands in "Other". */
+const GROUPS: { title: string; codes: string[] }[] = [
+  { title: "Events", codes: ["EVENTS", "REGISTRATIONS", "CUSTOMERS"] },
+  { title: "Organization", codes: ["ORGANIZATIONS", "BRANCHES"] },
+  { title: "Team and access", codes: ["USER_ROLES", "ROLES"] },
+];
+
+/** The same icons as the menu, so an area looks the same here and there. */
+const AREA_ICONS: Record<string, LucideIcon> = {
+  EVENTS: Calendar,
+  REGISTRATIONS: Users,
+  CUSTOMERS: Briefcase,
+  ORGANIZATIONS: Building,
+  BRANCHES: GitBranch,
+  USER_ROLES: UserCog,
+  ROLES: ShieldCheck,
+};
+
+/** What each area covers, so nobody has to guess what "Clients" or "Staff assignments" opens. */
+const AREA_ABOUT: Record<string, string> = {
+  EVENTS: "Events, venues, ticket types and covers.",
+  REGISTRATIONS: "Guest profiles and who is registered for what.",
+  CUSTOMERS: "Companies and people who commission events.",
+  ORGANIZATIONS: "The organization's name and defaults.",
+  BRANCHES: "The offices events run from.",
+  USER_ROLES: "Who works here, and with which role.",
+  ROLES: "Roles and what each can do.",
+};
+
 
 function startValues(role: Role | undefined, modules: readonly GrantableModule[]): Values {
   return {
@@ -95,6 +149,8 @@ export function RoleForm({ role, grantableModules, hasBranches, templates, onCre
   const [failure, setFailure] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
+  // A new role's code follows its name until the code is typed by hand; an existing role's code never changes.
+  const [codeTouched, setCodeTouched] = useState(editing);
 
   const textDirty = values.code !== start.code || values.name !== start.name || values.description !== start.description;
   const grantsDirty = !grantsEqual(values.grants, start.grants, visibleCodes);
@@ -111,6 +167,7 @@ export function RoleForm({ role, grantableModules, hasBranches, templates, onCre
       ...prev,
       name: tpl.name,
       description: tpl.description ?? "",
+      code: codeTouched ? prev.code : codeFrom(tpl.name),
       grants: initialGrantState(tpl.grants, orderedModules),
     }));
   }
@@ -118,6 +175,25 @@ export function RoleForm({ role, grantableModules, hasBranches, templates, onCre
   function setField<K extends "code" | "name" | "description">(key: K, value: string) {
     setValues((prev) => ({ ...prev, [key]: value }));
     if (errors[key]) setErrors((prev) => ({ ...prev, [key]: undefined }));
+  }
+
+  function setName(name: string) {
+    setValues((prev) => ({ ...prev, name, code: codeTouched ? prev.code : codeFrom(name) }));
+    if (errors.name || (!codeTouched && errors.code)) setErrors((prev) => ({ ...prev, name: undefined, code: codeTouched ? prev.code : undefined }));
+  }
+
+  function setCode(code: string) {
+    setCodeTouched(code !== "");
+    setField("code", code.toUpperCase());
+  }
+
+  /** Quick actions over every area shown: let them see everything, or take everything away. */
+  function setAll(view: boolean) {
+    setValues((prev) => ({
+      ...prev,
+      grants: visibleModules.reduce((grants, m) => (view && grants[m.module_code]?.view ? grants : toggleGrantFlag(grants, m.module_code, "view", view)), prev.grants),
+    }));
+    setErrors((prev) => ({ ...prev, grants: {} }));
   }
 
   function toggleGrant(moduleCode: string, action: GrantAction, checked: boolean) {
@@ -235,113 +311,157 @@ export function RoleForm({ role, grantableModules, hasBranches, templates, onCre
   }
 
   const fieldErrorCount = [errors.code, errors.name, errors.description, errors.template].filter(Boolean).length + Object.keys(errors.grants).length;
+  // Branches stay out of the list (and the counts) for an organization without branches; the payload still keeps them.
+  const orderedModulesShown = visibleModules;
+  const opened = orderedModulesShown.filter((m) => values.grants[m.module_code]?.view);
+  const grouped = [
+    ...GROUPS.map((g) => ({ title: g.title, modules: g.codes.map((code) => orderedModulesShown.find((m) => m.module_code === code)).filter((m): m is GrantableModule => Boolean(m)) })),
+    { title: "Other", modules: orderedModulesShown.filter((m) => !GROUPS.some((g) => g.codes.includes(m.module_code))) },
+  ].filter((g) => g.modules.length > 0);
+  const iconOf = (code: string) => AREA_ICONS[code] ?? iconForModule(code, null);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-3">
-        <Breadcrumb
-          items={[
-            { label: "Roles", onClick: cancel },
-            ...(editing ? [{ label: role!.name, onClick: cancel }] : []),
-            { label: editing ? "Edit role" : "New role" },
-          ]}
-        />
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-col gap-0.5">
-            <h1 className="type-h1 m-0 text-text">{editing ? `Edit ${role!.name}` : "New role"}</h1>
-            <p className="type-body m-0 text-text-soft">
-              {editing ? "Change the role details and what staff who hold it can do." : "Choose what staff with this role can view, create and update."}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="secondary" type="button" onClick={cancel}>
-              Cancel
-            </Button>
-            <Button type="submit" form="role-form" loading={saving} loadingLabel={editing ? "Saving" : "Creating"} disabled={editing && !dirty}>
-              {editing ? "Save changes" : "Create role"}
-            </Button>
-          </div>
+    <div className="flex w-full max-w-7xl flex-col gap-6">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div className="flex flex-col gap-0.5">
+          <h1 className="type-h1 m-0 text-text">{editing ? `Edit ${role!.name}` : "New role"}</h1>
+          <p className="type-body m-0 text-text-soft">{editing ? "Change the role and what staff who hold it can do." : "Name the role, then tick what staff who hold it can do."}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" type="button" onClick={cancel}>
+            Cancel
+          </Button>
+          <Button type="submit" form="role-form" loading={saving} loadingLabel={editing ? "Saving" : "Creating"} disabled={editing && !dirty}>
+            {editing ? "Save changes" : "Create role"}
+          </Button>
         </div>
       </div>
 
-      {failure && <ErrorBanner>{failure}</ErrorBanner>}
-      {fieldErrorCount > 0 && (
-        <ErrorBanner>{fieldErrorCount === 1 ? "Fix 1 field to continue." : `Fix ${fieldErrorCount} fields to continue.`}</ErrorBanner>
+      {(failure || fieldErrorCount > 0) && (
+        <div className="flex flex-col gap-2">
+          {failure && <ErrorBanner>{failure}</ErrorBanner>}
+          {fieldErrorCount > 0 && <ErrorBanner>{fieldErrorCount === 1 ? "Fix 1 field to continue." : `Fix ${fieldErrorCount} fields to continue.`}</ErrorBanner>}
+        </div>
       )}
 
-      <form id="role-form" onSubmit={submit} noValidate className="flex flex-col gap-4">
-        <Card>
-          <CardHeader title="Role details" subtitle="How the role is named and described." />
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Field label="Name" htmlFor="rl-name" required error={errors.name}>
-              <Input
-                id="rl-name"
-                value={values.name}
-                error={!!errors.name}
-                onChange={(e) => setField("name", e.target.value)}
-                placeholder="Event Coordinator"
-                maxLength={250}
-                autoComplete="off"
-              />
-            </Field>
-            <Field
-              label="Code"
-              htmlFor="rl-code"
-              required={!editing}
-              error={errors.code}
-              hint={editing ? "Can't be changed after the role is created." : "Letters, digits and underscores. It can't be changed later."}
-            >
-              <Input
-                id="rl-code"
-                value={values.code}
-                disabled={editing}
-                error={!!errors.code}
-                onChange={(e) => setField("code", e.target.value)}
-                placeholder="EVENT_COORDINATOR"
-                maxLength={80}
-                autoComplete="off"
-              />
-            </Field>
-            <div className="md:col-span-2">
-              <Field label="Description" htmlFor="rl-description" error={errors.description} hint="Optional. Helps admins pick the right role for staff.">
-                <Textarea
-                  id="rl-description"
-                  value={values.description}
-                  error={!!errors.description}
-                  onChange={(e) => setField("description", e.target.value)}
-                  maxLength={2000}
-                />
-              </Field>
-            </div>
-          </div>
-        </Card>
-
-        {!editing && templates && templates.length > 0 && (
-          <Card>
-            <CardHeader
-              title="Start from a template"
-              subtitle="Optional. Fills the name, description and access below. You can still change anything."
-            />
-            <div className="max-w-md">
-              <Field label="Template" htmlFor="rl-template" error={errors.template}>
+      {/* Wide screens: the details on the left (they stay in view), the access table beside them, both on screen at once. */}
+      <form id="role-form" onSubmit={submit} noValidate className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,400px)_minmax(0,1fr)] xl:gap-6">
+        <Card className="xl:sticky xl:top-6">
+          <CardHeader title="About the role" subtitle={editing ? "The code can't change." : "Staff see the name. The code is fixed once created."} />
+          <div className="flex flex-col gap-5">
+            {!editing && templates && templates.length > 0 && (
+              <Field label="Start from" htmlFor="rl-template" error={errors.template} hint="Optional. A template fills in the name, description and access.">
                 <Select
                   id="rl-template"
-                  placeholder="Choose a template"
                   options={[{ value: "none", label: "Build from scratch" }, ...templates.map((t) => ({ value: t.id, label: t.name }))]}
                   value={selectedTemplateId}
                   onValueChange={applyTemplate}
                 />
               </Field>
+            )}
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,260px)] xl:grid-cols-1">
+              <Field label="Name" htmlFor="rl-name" required error={errors.name}>
+                <Input id="rl-name" value={values.name} error={!!errors.name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Event Coordinator" maxLength={250} autoComplete="off" autoFocus={!editing} />
+              </Field>
+              <Field label="Code" htmlFor="rl-code" required={!editing} error={errors.code} hint={editing ? undefined : codeTouched ? "Letters, digits and underscores." : "Made from the name."}>
+                <Input id="rl-code" value={values.code} disabled={editing} error={!!errors.code} onChange={(e) => setCode(e.target.value)} placeholder="e.g. EVENT_COORDINATOR" maxLength={80} autoComplete="off" spellCheck={false} />
+              </Field>
             </div>
-          </Card>
-        )}
+            <Field label="Description" htmlFor="rl-description" error={errors.description} hint="Optional. Helps admins pick the right role for staff.">
+              <Textarea id="rl-description" rows={3} value={values.description} error={!!errors.description} onChange={(e) => setField("description", e.target.value)} maxLength={2000} placeholder="e.g. Runs events day to day. Can't change roles or staff." />
+            </Field>
+          </div>
+        </Card>
 
-        <GrantGrid
-          visibleModules={visibleModules}
-          grants={values.grants}
-          errors={errors.grants}
-          onToggle={toggleGrant}
-        />
+        <Card>
+          <CardHeader title="What they can do" subtitle="Tick what staff with this role can do in each area." />
+          <div className="flex flex-col gap-5">
+            {/* What the role opens, at a glance, with the two quick actions. */}
+            <div className="flex flex-col gap-3 rounded-md border border-border bg-surface-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                <span className="type-body-sm mr-1 font-semibold text-text">Opens</span>
+                {opened.length > 0 ? (
+                  opened.map((m) => (
+                    <Pill key={m.module_code} tone="neutral" size="sm">
+                      {createElement(iconOf(m.module_code))}
+                      {m.module_name}
+                    </Pill>
+                  ))
+                ) : (
+                  <span className="type-body-sm text-text-faint">nothing yet. Tick View on at least one area.</span>
+                )}
+              </div>
+              <div className="flex flex-none items-center gap-2">
+                <Button type="button" variant="secondary" onClick={() => setAll(true)} disabled={opened.length === orderedModulesShown.length}>
+                  See all areas
+                </Button>
+                <Button type="button" variant="secondary" onClick={() => setAll(false)} disabled={opened.length === 0}>
+                  Clear all
+                </Button>
+              </div>
+            </div>
+
+            {/* One table: the rights as columns, labelled once at the top; areas grouped inside it. */}
+            <div className="overflow-hidden rounded-md border border-border">
+              <div className="hidden grid-cols-[minmax(0,1fr)_repeat(7,56px)] items-center border-b border-border bg-surface-2 px-4 py-2.5 md:grid">
+                <span className="type-label text-text-soft">Area</span>
+                {RIGHTS.map((r) => (
+                  <span key={r.action} className="type-label text-center text-text-soft">
+                    {r.label}
+                  </span>
+                ))}
+              </div>
+              {grouped.map((group) => (
+                <div key={group.title}>
+                  <div className="border-b border-border px-4 pb-1.5 pt-3">
+                    <span className="type-label text-text-faint">{group.title}</span>
+                  </div>
+                  {group.modules.map((m) => {
+                    const flags = values.grants[m.module_code];
+                    const on = Boolean(flags?.view);
+                    const error = errors.grants[m.module_code];
+                    return (
+                      <div key={m.module_code} className="flex flex-col gap-3 border-b border-border px-4 py-3 md:grid md:grid-cols-[minmax(0,1fr)_repeat(7,56px)] md:items-center md:gap-0">
+                        <div className="flex min-w-0 items-start gap-3 md:pr-3">
+                          <IconTile tone={on ? "accent" : "charcoal"} size="sm">
+                            {createElement(iconOf(m.module_code))}
+                          </IconTile>
+                          <div className="flex min-w-0 flex-col gap-0.5">
+                            <span className={on ? "type-body font-semibold text-text" : "type-body font-semibold text-text-soft"}>{m.module_name}</span>
+                            <span role={error ? "alert" : undefined} className={error ? "type-body-sm text-danger" : "type-body-sm text-text-faint"}>
+                              {error ?? AREA_ABOUT[m.module_code] ?? ""}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Wide screens: a bare box under each column label; a dash where the area has no such right. */}
+                        {RIGHTS.map((r) => (
+                          <div key={r.action} className="hidden justify-center md:flex">
+                            {m.actions.includes(r.action) ? (
+                              <Checkbox checked={Boolean(flags?.[r.action])} onCheckedChange={(checked) => toggleGrant(m.module_code, r.action, checked)} aria-label={`${r.label} ${m.module_name}`} />
+                            ) : (
+                              <span className="type-body-sm text-text-faint" aria-hidden="true">
+                                –
+                              </span>
+                            )}
+                          </div>
+                        ))}
+
+                        {/* Phones: the same boxes with their labels, under the area. */}
+                        <div className="flex flex-wrap gap-x-5 gap-y-2 pl-11 md:hidden" role="group" aria-label={`${m.module_name} rights`}>
+                          {RIGHTS.filter((r) => m.actions.includes(r.action)).map((r) => (
+                            <Checkbox key={r.action} checked={Boolean(flags?.[r.action])} onCheckedChange={(checked) => toggleGrant(m.module_code, r.action, checked)} label={r.label} />
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+            <p className="type-body-sm m-0 text-text-faint">Ticking any other box also ticks View; unticking View clears the area. Delete, import and notify take effect where a screen offers them.</p>
+          </div>
+        </Card>
       </form>
 
       <ConfirmDialog

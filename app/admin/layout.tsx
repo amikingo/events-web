@@ -291,7 +291,6 @@ function DashboardShell({ children }: { children: ReactNode }) {
                     { id: "/admin/venues/new", title: "Add a venue", group: "Actions" as const },
                   ]
                 : []),
-              ...(can("read", MODULE_CODES.EVENTS) ? [{ id: "/admin/venues", title: "Venues", group: "Navigation" as const }] : []),
               ...(can("create", MODULE_CODES.CUSTOMERS) ? [{ id: "/admin/clients/new", title: "Add a client", group: "Actions" as const }] : []),
               ...(DEMO_PAGES_ENABLED ? getSearchCommands().map((c) => ({ id: c.id, title: `${c.title} (demo)`, group: c.group })) : []),
             ],

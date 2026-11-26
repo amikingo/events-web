@@ -100,8 +100,8 @@ GET /v1/auth/staff/me
 ```
 
 - **Module codes** are in `lib/constants/modules.ts` and must be identical to `events-api/src/utils/module-codes.ts` (`MODULE_CODES`). Each line has a comment naming the backend constant. The values are `UPPER_SNAKE_CASE` (a database check enforces it on the backend).
-- **`ROUTE_MODULE_MAP`** (same file) says which module guards which screen. `moduleForPath()` picks the longest matching prefix. Venues have no menu entry but are guarded by `EVENTS`, as on the backend.
-- **`lib/constants/module-routes.ts`** maps the backend's `route_name` (from `/me` navigation, e.g. `/events`) to the frontend path (`/admin/events`). The backend can add a module without the frontend guessing its URL. **A `route_name` missing from this map has no screen yet, and the sidebar leaves it out** (today: the Access Control pages).
+- **`ROUTE_MODULE_MAP`** (same file) says which module guards which screen. `moduleForPath()` picks the longest matching prefix. Venues are guarded by `EVENTS`, as on the backend (there is no `VENUES` module). Their menu entry comes from a **menu-only module** created on *Access › Modules* (code `VENUES`, sits under Event Management, address `/venues`, icon `MapPin`, *Roles can be given it* off). The API sends menu-only modules to every role, so `buildModuleTree` shows a page only when the role may view the module that **guards its screen** (`moduleForPath(href)` → `ROUTE_MODULE_MAP`): Venues show to whoever can view Events. The same works for any future menu-only page: create the module, map its `route_name` in `module-routes.ts` and its path in `ROUTE_MODULE_MAP`.
+- **`lib/constants/module-routes.ts`** maps the backend's `route_name` (from `/me` navigation, e.g. `/events`) to the frontend path (`/admin/events`). The backend can add a module without the frontend guessing its URL. **A `route_name` missing from this map has no screen yet, and the sidebar leaves it out.** All four Access Control pages are mapped; the Platform pages (`/admin/platform/*`) are not in this map.
 - In markup: `<Can I="create" a={MODULE_CODES.EVENTS}>…</Can>`. In code: `const { can, hasModuleAccess } = useModuleAccess(); can("update", MODULE_CODES.EVENTS)`. Actions are CASL's: `read` (the backend's `view`), `create`, `update`, `delete`, `import`, `export`, `notify`.
 - **No fallbacks that hide missing permissions.** While `/me` loads nothing is granted. If it didn't grant it, it isn't shown. The frontend never decides from role names.
 - **Route guard:** `DashboardRouteGuard` + `hooks/use-role-guard.tsx` send a role that may not view the current path to `/admin/forbidden`. `/admin` itself redirects to the first page the role's menu offers.
@@ -110,11 +110,36 @@ GET /v1/auth/staff/me
 
 ## 6. Screens
 
-- **Records follow the payments template:** list (`Table`, server-paged) → peek panel → full record page → create/edit as a full page. Modals only confirm. **Each screen has its own form file** (`event-form.tsx`, `venue-form.tsx`, `client-form.tsx`, `branch-form.tsx`, `guest-form.tsx`, `organization-form.tsx`, `change-role-form.tsx`, `add-staff-form.tsx`), not a shared one and not the workspace's built-in `form`: one breadcrumb, cards of fields, Cancel and Save in the header so they stay in view, a "Discard changes?" confirm only when something was typed. The screen renders its form instead of the workspace when `location.mode` is `create` or `edit`, and the workspace's own `form` prop is a stub. To add a record type, copy `venue-form.tsx` (the simplest) and change the fields. Delete, archive and block never sit in a table row. See `.cheche-ui/patterns.md`.
+- **Records follow the payments template:** list (`Table`, server-paged) → peek panel → full record page → create/edit as a full page. Modals only confirm. **Each screen has its own form file**, not a shared one and not the workspace's built-in `form`. The screen renders its form instead of the workspace when `location.mode` is `create` or `edit`, and the workspace's own `form` prop is a stub. To add a record type, copy `venue-form.tsx` (the simplest) and change the fields. Delete, archive and block never sit in a table row. See `.cheche-ui/patterns.md` and section 6.1.
 - A screen is a thin `page.tsx` that renders `<Suspense><XScreen /></Suspense>`. The screen picks the organization (`useOrganizationId`) and renders `<XView organizationId>` where all the hooks live.
 - Tables are server-paged: pass `page`, `onPageChange`, `rowsPerPage`, `onRowsPerPageChange`, `totalRows`. Turn off `searchable` and `filters` until the API can search or filter that list; a search over only the visible page misleads.
 - Copy is plain, sentence case, no exclamation marks, buttons name the action ("Create event"). Statuses use `StatusPill` (`kind="event"` was added for events).
-- **Icons are Lucide everywhere.** `components/ui/icons.tsx` keeps its names and draws each icon with Lucide; for anything else import from `lucide-react`. Sidebar icons come from the backend's icon name in `/me`, then by module code (`lib/rbac/module-sidebar.ts`): when a backend migration adds a module with a new icon name, add that one import to `BACKEND_ICONS`.
+- **Icons are Lucide everywhere.** `components/ui/icons.tsx` keeps its names and draws each icon with Lucide; for anything else import from `lucide-react`. Menu and module icons come from the backend's icon name, as in bookings: `iconForModule(code, name)` in `lib/rbac/module-sidebar.ts` finds **any** Lucide icon through `normalizeLucideIconName()`, which accepts the name as lucide.dev writes it (`calendar-days`), as code (`CalendarDays`), or with `_`/spaces. It looks in Lucide's own `icons` list, so only real icons match. An unknown name falls back to `ICON_BY_CODE`, then `LayoutDashboard`. Nothing to add when a module uses a new icon. The cost: the whole Lucide set is in the admin bundle (the visitor site doesn't load this file).
+- **List toolbars** (`Table toolbarActions`): filters and the create button sit in one `flex … sm:flex-nowrap` row, so they don't stack on wide screens; they wrap on phones only.
+
+### 6.1 Create and edit pages
+
+Every form page has the same shape (reference: `client-form.tsx` for a plain record, `event-form.tsx` for the richest):
+
+- **No breadcrumb in the form.** `app/admin/layout.tsx` already draws one for every page (`getBreadcrumbTrail` in `lib/config/brandos-config.ts`); a second one inside the form repeats it.
+- **Left-aligned, `max-w-6xl`** (`max-w-7xl` for the permission pages), never centred, so the form lines up under the layout's breadcrumb.
+- **Header:** `<h1>`, one line of why, then **Cancel** and the main button on the right. No second set of buttons at the bottom. Cancel asks "Discard changes?" only when something was typed; Save is disabled on edit until something changed.
+- **Two columns from `lg`:** on the left a **live preview** card that stays in view (`lg:sticky lg:top-6`) and shows the record as people will see it while it's typed (initials or icon tile, name, labels, key lines with faint placeholders); on the right the fields in titled sections (`<h2 className="type-h3">` + a `Card`). They stack on phones, preview first.
+- **Settings as rows:** less common options sit in a list of rows (icon tile, title, one line saying what the current setting means, the control on the right; `OptionRow` in each form file), e.g. the event's *Event options*, the organization's *Setup*, the module's *Behaviour*.
+- **The form fills in what it can:** codes from the name (`EVENT_COORDINATOR`, `ADDIS_OFFICE`) until the code is typed by hand, the web address preview from the name, an event's end two hours after its start, capacity digits only. Codes are upper-cased as typed.
+- **Pick from lists, don't type codes:** countries, currencies and timezones are searchable `Combobox` lists that still save the same codes; roles are `SelectCard` choice cards with their description and how many areas they open.
+- **Two-step pages** (Add staff): numbered step headings whose number turns into a tick when done; the summary card on the left shows what will happen.
+- **Placeholders read as examples** ("e.g. Banking Forum 2027").
+
+### 6.2 Permission screens
+
+Roles, role templates and platform roles share one pattern (`role-form.tsx`, `role-template-form.tsx`, `platform-role-form.tsx`). Keep it for any new permission screen:
+
+- **Details on the left** (400 px, sticky from `xl`), **"What they can do" on the right**; below `xl` they stack.
+- **One checkbox table:** the seven rights (View, Create, Update, Delete, Import, Export, Notify) as columns labelled once at the top; a dash where an area has no such right. Areas are grouped (Events · Organization · Team and access · Other/Platform), each with its menu icon and one line on what it covers; the icon tile turns pink once the area is open. On phones each area's boxes show with labels under it.
+- **An "Opens" strip** above the table lists what the role opens, with *See all areas* and *Clear all*.
+- **Ticking rules and payloads** live in `app/admin/access/_components/grant-grid.tsx` (`initialGrantState`, `toggleGrantFlag`, `grantsEqual`, `toGrantPayload`, `sortGrantableModules`): any right ticks View, unticking View clears the area, and the payload always carries every grantable module (a hidden Branches row keeps what the role holds).
+- Not used, on purpose: access-level dropdowns (No access / View / Full / Custom) and extra rights as rows under each area. Both were tried and dropped.
 
 ## 7. Adding a new backend module: checklist
 
@@ -132,7 +157,7 @@ Backend first (`events-api`), then the frontend. Keep every module code identica
 3. `lib/constants/modules.ts` → `ROUTE_MODULE_MAP`: map `/admin/<feature>` → the module code (so the guard applies).
 4. `lib/api/<feature>.ts`: endpoint list at the top, DTO types, `listX` (paged), `listAllX` if a picker needs it, `getX`, `createX`, `updateX`, `setXActive`.
 5. `lib/query-keys.ts`: add `<feature>Qk` with `all`, `list`, `detail` (and `everyone` for pickers).
-6. `lib/rbac/module-sidebar.ts`: add the icon (`BACKEND_ICONS` if the backend names a new Lucide icon, and `ICON_BY_CODE` for the fallback).
+6. `lib/rbac/module-sidebar.ts`: nothing for the icon the backend names (any Lucide name works); add the module code to `ICON_BY_CODE` only if you want a fallback when it sends none.
 7. `lib/api/errors.ts`: add any new error code's message.
 8. Screen: copy `app/admin/venues/[[...slug]]/page.tsx` (the reference). Change the type, `columns`, `sections`, `identity`, `stats`, `panel` and `page`. Keep: queries with `enabled` guards, `keepPreviousData`, server paging, mutations that invalidate `<feature>Qk.all`, code-based error messages, `<Can>` around create, `can("update", …)` around edit and switch-off.
 9. If the screen needs a status word, add it to `statusVocabulary` in `components/ui/status-pill.tsx` first; never pick a colour.
@@ -157,7 +182,7 @@ What a full pass covers: session and `/me`; every feature's create, update, stat
 | Access token in a readable cookie (`token`, `auth-type`, profile and assignment cookies) | Token in memory only; assignment id in `localStorage` | The API's guide forbids storing the token; a readable cookie has the same XSS exposure as `localStorage`. |
 | `toast.error(error.message)` | `toast.error(…, { body: describeApiError(error) })` | The API says to branch on `error.code`; its messages are technical. |
 | `X-User-Type` header; separate `/auth/customer/*` | Not used | The API tells staff and customer tokens apart by the token's own type. Customer sign-in arrives with registrations (Phase 4). |
-| Whole Lucide set looked up by name | Only the icon names the backend uses are imported | Keeps the rest of Lucide out of the page. |
+| Whole Lucide set looked up by name | Same (`normalizeLucideIconName`), but only in Lucide's `icons` list, never its other exports | Any icon the backend or the module form names just works. |
 | Express 4 with `asyncHandler`; lowercase module codes | Express 5 (no wrapper needed); `UPPER_SNAKE_CASE` codes | Backend choices on this project. |
 | Sidebar from `/me` only | Same, plus a dev-only "Demo pages" accordion | The template's demo screens have no backend module yet. |
 | Sidebar 274 px wide | Same (set in `components/ui/app-shell.tsx`) | Long group names fit beside their arrow. |
@@ -184,14 +209,16 @@ The marketplace (`/`, `/events`, `/events/<organization>/<event>`) keeps its own
 
 ## 12. Access Control (built)
 
-- **Roles** (`/admin/access/roles`, module `ROLES`): read only. A list of the organization's roles, and a record page showing what each may do per module.
-- **Staff Assignments** (`/admin/access/assignments`, module `USER_ROLES`): who holds which role, paged. **Add staff** is a full page: type a mobile, *Look up* shows the name so the owner can confirm the person, then pick a role (and a branch only when `has_branches`). The API looks the number up itself, so no user id is ever sent. **Change role** uses the edit form; **Switch off access** is behind a confirm. The only active Owner can't be switched off or moved (`last_owner_assignment`): the screen hides those actions when everyone fits on one page, and the API's answer is the backstop.
+- **Roles** (`/admin/access/roles`, module `ROLES`): list (filterable by template), record page, and create/edit with the permission table (section 6.2). A new role can *Start from* a template, which fills the form and sends `role_template_id`. The Owner role can't be edited. Errors shown in words: `grant_exceeds_own_access` (which rights you don't hold yourself), `role_template_inactive`, `role_locked`.
+- **Role templates** (`/admin/access/role-templates`): ready-made roles with a *For new organizations* switch (every new organization gets a role made from it). Roles made from a template are copies; changing the template never changes them.
+- **Modules** (`/admin/access/modules`): the menu and permission tree. Name (the code follows it), place in the menu (*Sits under*, order, any Lucide icon by name with a live preview), page address, *Show in menu*, *Roles can be given it*. Core modules keep their address and permission setting.
+- **Staff Assignments** (`/admin/access/assignments`, module `USER_ROLES`): who holds which role, paged. **Add staff** is a two-step full page: type a mobile and *Look up* (the name comes back so the owner can confirm the person); if no Cheche account uses the number, the page creates one (names and a password, with *Generate*) and shows the one-time sign-in details to hand over. Then pick a role card (and a branch only when `has_branches`). The API looks the number up itself, so no user id is ever sent. **Change role** uses the edit form; **Switch off access** is behind a confirm. The only active Owner can't be switched off or moved (`last_owner_assignment`): the screen hides those actions when everyone fits on one page, and the API's answer is the backstop.
+- **Platform** (`/admin/platform/roles`, `/admin/platform/staff`): platform roles (same permission table; their access to organization areas applies in every organization) and platform staff, added like organization staff but without an organization. A person who is staff of an organization can't be platform staff.
 - **Every organization has roles.** `POST /v1/organizations` creates the default Owner and Viewer roles, and a backfill migration repaired older organizations (events-api commit `0c6d726`).
 
 ## 13. Not built yet
 
 - **Attendee accounts:** `/account` and the attendee OTP sign-up on `/auth` are still simulated. There are no attendee accounts on the API: a visitor registers with no account, and their code is their ticket (`/my-tickets` says so).
 - **Search on the visitor site:** the API has no search, so `/events` filters by category and organizer only.
-- **Access Control › Modules, Role Templates, Permission Overrides:** hidden by the API team's decision (no endpoints). Roles are read only: there is no create or edit.
 - **Search** on lists: the API has no search parameter; tables run without it.
 - Settings → profile and password forms, and attendee sign-in, are still simulated.

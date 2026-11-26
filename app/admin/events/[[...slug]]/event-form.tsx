@@ -1,21 +1,27 @@
 "use client";
 
-import { useState } from "react";
-import { Breadcrumb } from "@/components/ui/breadcrumb";
+import { CalendarClock, Globe, ImagePlus, Link2, MapPin, UserRound, Users } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { EventCover } from "@/components/marketplace/event-cover";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { ErrorBanner } from "@/components/ui/error-banner";
 import { Field } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { IconTile } from "@/components/ui/icon-tile";
+import { Input, InputAddon, InputGroup } from "@/components/ui/input";
+import { Pill } from "@/components/ui/pill";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Select } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { assetUrl } from "@/lib/api-client";
 import type { Client } from "@/lib/api/clients";
 import type { EventInput, EventVisibility, StaffEvent } from "@/lib/api/events";
 import type { Venue } from "@/lib/api/venues";
-import { isoToZonedLocal, zonedLocalToIso } from "@/lib/timezone";
+import { formatInZone, isoToZonedLocal, zonedLocalToIso } from "@/lib/timezone";
 
 /** What the form holds: times as wall-clock `YYYY-MM-DDTHH:mm` in the event's timezone, numbers as typed. */
 interface Values {
@@ -33,10 +39,17 @@ interface Values {
   clientId: string;
 }
 
-type Errors = Partial<Record<keyof Values, string>>;
+type Errors = Partial<Record<keyof Values | "cover", string>>;
 
 const NONE = "none";
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+/** Room for the empty "Hour" placeholder in each time box, so it isn't cut to "Ho…". Placement only, set on this form. */
+const TIME_FIT = "[&_[role=group]>*]:w-[92px]";
+/** A new event's end is filled in this long after its start, so most people never touch it. */
+const DEFAULT_LENGTH_HOURS = 2;
+/** What the API takes for a cover (it checks again). */
+const COVER_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const COVER_MAX_BYTES = 5 * 1024 * 1024;
 
 function startValues(event: StaffEvent | undefined, timeZone: string): Values {
   return {
@@ -84,23 +97,77 @@ function toInput(v: Values, timeZone: string, sendSlug: boolean): EventInput {
   };
 }
 
+/** "Banking Forum 2027!" → "banking-forum-2027": a preview of the address the API makes from the name. */
+const slugFrom = (name: string) =>
+  name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+/** Wall-clock `YYYY-MM-DDTHH:mm` plus some hours, done on the digits so no timezone gets in the way. */
+function addHours(local: string, hours: number): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(local);
+  if (!match) return "";
+  const [, y, mo, d, h, mi] = match.map(Number);
+  return new Date(Date.UTC(y!, mo! - 1, d!, h! + hours, mi!)).toISOString().slice(0, 16);
+}
+
+/** "3 hours" / "2 days", or nothing when the times are missing or out of order. */
+function lengthOf(startsAt: string, endsAt: string): string | undefined {
+  if (!startsAt || !endsAt || endsAt <= startsAt) return undefined;
+  const minutes = (Date.parse(`${endsAt}:00Z`) - Date.parse(`${startsAt}:00Z`)) / 60000;
+  if (minutes < 60) return `${minutes} minutes`;
+  if (minutes < 24 * 60) {
+    const hours = Math.round((minutes / 60) * 10) / 10;
+    return `${hours} ${hours === 1 ? "hour" : "hours"}`;
+  }
+  // Calendar days it touches: Friday evening to Sunday noon is 3 days.
+  const days = (Date.parse(`${endsAt.slice(0, 10)}T00:00Z`) - Date.parse(`${startsAt.slice(0, 10)}T00:00Z`)) / 86_400_000 + 1;
+  return `${days} days`;
+}
+
+/** One line of "Event options": an icon, what it is, and its control on the right. Stacks on a phone. */
+function OptionRow({ icon, title, hint, error, children, below }: { icon: ReactNode; title: string; hint: string; error?: string; children?: ReactNode; below?: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-4 border-t border-border py-4 first:border-t-0 first:pt-0 last:pb-0">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+        <div className="flex min-w-0 items-start gap-3">
+          <IconTile tone="charcoal" size="sm">
+            {icon}
+          </IconTile>
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <span className="type-body font-semibold text-text">{title}</span>
+            <span className={error ? "type-body-sm text-danger" : "type-body-sm text-text-soft"}>{error ?? hint}</span>
+          </div>
+        </div>
+        {children && <div className="flex flex-none sm:justify-end">{children}</div>}
+      </div>
+      {below}
+    </div>
+  );
+}
+
 interface EventFormProps {
   /** The event being edited. Leave out to create one. */
   event?: StaffEvent;
   /** The timezone times are typed in: the event's own, or the organization's for a new event. */
   timeZone: string;
+  /** For the web address preview: `events/<organization>/<event>`. */
+  organizationSlug?: string;
   venues: Venue[];
   clients: Client[];
-  /** Persist. Throw an Error with a message to keep the form open and show it. */
-  onSubmit: (input: EventInput) => Promise<void>;
+  /** Persist, then upload `cover` when one was picked. Throw an Error with a message to keep the form open and show it. */
+  onSubmit: (input: EventInput, cover: File | null) => Promise<void>;
   onCancel: () => void;
 }
 
 /**
- * Create and edit page for an event. A full page with cards of fields, buttons in the header so they stay in view.
- * The slug can only change while the event is a draft; after the first publication its address is fixed.
+ * Create and edit page for an event, after the best event sites (Luma): the cover and a live preview on the left, the
+ * essentials (name, when, where, about) on the right, then the less common settings as a list of options. The form
+ * fills in what it can (the end time, the web address) and hides what most people don't need (a sign-up window).
  */
-export function EventForm({ event, timeZone, venues, clients, onSubmit, onCancel }: EventFormProps) {
+export function EventForm({ event, timeZone, organizationSlug, venues, clients, onSubmit, onCancel }: EventFormProps) {
   const editing = Boolean(event);
   const slugEditable = !event || event.status === "DRAFT";
   const [start] = useState(() => startValues(event, timeZone));
@@ -109,12 +176,43 @@ export function EventForm({ event, timeZone, venues, clients, onSubmit, onCancel
   const [failure, setFailure] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
+  const [signupWindow, setSignupWindow] = useState(() => Boolean(start.opensAt || start.closesAt));
+  const [cover, setCover] = useState<File | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const coverInputId = useId();
 
-  const dirty = (Object.keys(start) as (keyof Values)[]).some((k) => values[k] !== start[k]);
+  // A picked photo shows straight away; the URL is let go when it changes or the page closes.
+  const coverPreview = useMemo(() => (cover ? URL.createObjectURL(cover) : null), [cover]);
+  useEffect(() => () => void (coverPreview && URL.revokeObjectURL(coverPreview)), [coverPreview]);
+  const coverSrc = coverPreview ?? (event?.cover ? assetUrl(event.cover.url) : undefined);
+
+  const dirty = cover !== null || (Object.keys(start) as (keyof Values)[]).some((k) => values[k] !== start[k]);
 
   function set<K extends keyof Values>(key: K, value: Values[K]) {
     setValues((v) => ({ ...v, [key]: value }));
     if (errors[key]) setErrors((e) => ({ ...e, [key]: undefined }));
+  }
+
+  function setStart(startsAt: string) {
+    // Picking the start fills in an end two hours later, unless the person already chose one.
+    setValues((v) => ({ ...v, startsAt, endsAt: v.endsAt || !startsAt ? v.endsAt : addHours(startsAt, DEFAULT_LENGTH_HOURS) }));
+    if (errors.endsAt) setErrors((e) => ({ ...e, endsAt: undefined }));
+  }
+
+  function toggleSignupWindow(on: boolean) {
+    setSignupWindow(on);
+    if (!on) {
+      setValues((v) => ({ ...v, opensAt: "", closesAt: "" }));
+      setErrors((e) => ({ ...e, closesAt: undefined }));
+    }
+  }
+
+  function pickCover(file: File | undefined) {
+    if (!file) return;
+    if (!COVER_TYPES.includes(file.type)) return setErrors((e) => ({ ...e, cover: "Use a JPEG, PNG or WebP image." }));
+    if (file.size > COVER_MAX_BYTES) return setErrors((e) => ({ ...e, cover: "Use an image up to 5 MB." }));
+    setErrors((e) => ({ ...e, cover: undefined }));
+    setCover(file);
   }
 
   async function submit(e: React.FormEvent) {
@@ -125,7 +223,7 @@ export function EventForm({ event, timeZone, venues, clients, onSubmit, onCancel
     setFailure(null);
     setSaving(true);
     try {
-      await onSubmit(toInput(values, timeZone, slugEditable));
+      await onSubmit(toInput(values, timeZone, slugEditable), cover);
     } catch (err) {
       setFailure(err instanceof Error ? err.message : "We couldn't save the event. Try again.");
       setSaving(false);
@@ -143,121 +241,226 @@ export function EventForm({ event, timeZone, venues, clients, onSubmit, onCancel
     ...venues.filter((v) => v.is_active || v.id === event?.venue_id).map((v) => ({ value: v.id, label: v.city ? `${v.name}, ${v.city}` : v.name })),
   ];
   const clientOptions = [
-    { value: NONE, label: "Our own event (no client)" },
+    { value: NONE, label: "Our own event" },
     ...clients.filter((c) => c.is_active || c.id === event?.customer_account_id).map((c) => ({ value: c.id, label: c.name })),
   ];
   const errorCount = Object.values(errors).filter(Boolean).length;
+  const suggestedSlug = slugFrom(values.name);
+  const zoneName = timeZone.replace(/_/g, " ");
+  const venue = venues.find((v) => v.id === values.venueId);
+  const startIso = zonedLocalToIso(values.startsAt, timeZone);
+  const length = lengthOf(values.startsAt, values.endsAt);
+
+  const actions = (
+    <>
+      <Button variant="secondary" type="button" onClick={cancel}>
+        Cancel
+      </Button>
+      <Button type="submit" form="event-form" loading={saving} loadingLabel="Saving" disabled={editing && !dirty}>
+        {editing ? "Save changes" : "Create event"}
+      </Button>
+    </>
+  );
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex w-full max-w-6xl flex-col gap-6">
       <div className="flex flex-col gap-3">
-        <Breadcrumb
-          items={[
-            { label: "Events", onClick: cancel },
-            ...(editing ? [{ label: event!.name, onClick: cancel }] : []),
-            { label: editing ? "Edit" : "New event" },
-          ]}
-        />
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div className="flex flex-col gap-0.5">
             <h1 className="type-h1 m-0 text-text">{editing ? `Edit ${event!.name}` : "New event"}</h1>
             <p className="type-body m-0 text-text-soft">
               {editing ? "Change the details people see." : "It starts as a draft with a General Admission ticket. Publish it when it's ready."}
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="secondary" type="button" onClick={cancel}>
-              Cancel
-            </Button>
-            <Button type="submit" form="event-form" loading={saving} loadingLabel="Saving" disabled={editing && !dirty}>
-              {editing ? "Save changes" : "Create event"}
-            </Button>
-          </div>
+          <div className="flex items-center gap-2">{actions}</div>
         </div>
       </div>
 
-      {failure && <ErrorBanner>{failure}</ErrorBanner>}
-      {errorCount > 0 && <ErrorBanner>{errorCount === 1 ? "Fix 1 field to continue." : `Fix ${errorCount} fields to continue.`}</ErrorBanner>}
+      {(failure || errorCount > 0) && (
+        <div className="flex flex-col gap-2">
+          {failure && <ErrorBanner>{failure}</ErrorBanner>}
+          {errorCount > 0 && <ErrorBanner>{errorCount === 1 ? "Fix 1 field to continue." : `Fix ${errorCount} fields to continue.`}</ErrorBanner>}
+        </div>
+      )}
 
-      <form id="event-form" onSubmit={submit} noValidate className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader title="About the event" subtitle="What it is and who it's for." />
-          <div className="flex flex-col gap-4">
-            <Field label="Name" htmlFor="ev-name" required error={errors.name}>
-              <Input id="ev-name" value={values.name} error={!!errors.name} onChange={(e) => set("name", e.target.value)} placeholder="Banking Forum 2027" autoComplete="off" />
-            </Field>
-            <Field label="Category" htmlFor="ev-category" hint="Optional. Visitors can filter by it, like Conference or Music.">
-              <Input id="ev-category" value={values.category} onChange={(e) => set("category", e.target.value)} placeholder="Conference" autoComplete="off" />
-            </Field>
-            <Field label="Description" htmlFor="ev-description" hint="Optional. Shown on the event's public page.">
-              <Textarea id="ev-description" value={values.description} onChange={(e) => set("description", e.target.value)} />
-            </Field>
-            {slugEditable && (
-              <Field
-                label="Web address"
-                htmlFor="ev-slug"
-                error={errors.slug}
-                hint={editing ? "The last part of the event's link. It's fixed once you publish." : "Optional. Left empty, we make one from the name. It's fixed once you publish."}
-              >
-                <Input id="ev-slug" value={values.slug} error={!!errors.slug} onChange={(e) => set("slug", e.target.value)} placeholder="banking-forum-2027" autoComplete="off" />
-              </Field>
-            )}
-          </div>
-        </Card>
+      <form id="event-form" onSubmit={submit} noValidate className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:gap-8">
+        {/* Left: the cover and how the event will look to visitors. Stays in view while the form scrolls. */}
+        <aside className="flex flex-col gap-3 lg:sticky lg:top-6">
+          <Card compact>
+            <div className="flex flex-col gap-3">
+              <div className="relative aspect-[4/3] overflow-hidden rounded-md border border-border">
+                <EventCover seed={values.name || "new-event"} pattern="rings" category={values.category.toLowerCase()} src={coverSrc} />
+                <div className="absolute bottom-3 right-3">
+                  <Button type="button" variant="secondary" onClick={() => fileInput.current?.click()}>
+                    <ImagePlus className="size-4" />
+                    {coverSrc ? "Change photo" : "Add photo"}
+                  </Button>
+                </div>
+                <input
+                  ref={fileInput}
+                  id={coverInputId}
+                  type="file"
+                  accept={COVER_TYPES.join(",")}
+                  className="sr-only"
+                  tabIndex={-1}
+                  aria-label="Cover photo"
+                  onChange={(e) => {
+                    pickCover(e.target.files?.[0]);
+                    e.target.value = "";
+                  }}
+                />
+              </div>
+              {errors.cover && <p className="type-body-sm m-0 text-danger">{errors.cover}</p>}
 
-        <Card>
-          <CardHeader title="When" subtitle={`Times are in ${timeZone.replace(/_/g, " ")}. You need both to publish.`} />
-          <div className="flex flex-col gap-4">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Field label="Starts" htmlFor="ev-starts">
-                <DateTimePicker id="ev-starts" value={values.startsAt} onValueChange={(v) => set("startsAt", v)} />
+              <div className="flex flex-col gap-1.5 px-1 pb-1">
+                <div className="flex items-center gap-2">
+                  <Pill tone="neutral" size="sm">
+                    {values.visibility === "PUBLIC" ? "Public" : "Link only"}
+                  </Pill>
+                  {values.category.trim() && (
+                    <Pill tone="neutral" size="sm">
+                      {values.category.trim()}
+                    </Pill>
+                  )}
+                </div>
+                <p className={values.name.trim() ? "type-h3 m-0 break-words text-text" : "type-h3 m-0 text-text-faint"}>{values.name.trim() || "Event name"}</p>
+                <p className="type-body-sm m-0 flex items-center gap-1.5 text-text-soft">
+                  <CalendarClock className="size-4 flex-none" />
+                  {startIso ? formatInZone(startIso, timeZone) : "Date and time to come"}
+                </p>
+                <p className="type-body-sm m-0 flex items-center gap-1.5 text-text-soft">
+                  <MapPin className="size-4 flex-none" />
+                  {venue ? (venue.city ? `${venue.name}, ${venue.city}` : venue.name) : "Venue to come"}
+                </p>
+              </div>
+            </div>
+          </Card>
+          <p className="type-body-sm m-0 px-1 text-text-faint">
+            {cover ? "The new photo is uploaded when you save. JPEG, PNG or WebP, up to 5 MB." : "This is how the event shows on the events site. A photo is optional: JPEG, PNG or WebP, up to 5 MB."}
+          </p>
+        </aside>
+
+        {/* Right: the essentials first, then the options most people leave as they are. */}
+        <div className="flex flex-col gap-6">
+          <Card>
+            <div className="flex flex-col gap-5">
+              <Field label="Event name" htmlFor="ev-name" required error={errors.name}>
+                <Input id="ev-name" value={values.name} error={!!errors.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Banking Forum 2027" autoComplete="off" autoFocus={!editing} />
               </Field>
-              <Field label="Ends" htmlFor="ev-ends" error={errors.endsAt}>
-                <DateTimePicker id="ev-ends" value={values.endsAt} onValueChange={(v) => set("endsAt", v)} min={values.startsAt || undefined} />
+
+              <div className="flex flex-col gap-4 rounded-md border border-border bg-surface-2 p-4">
+                <Field label="Starts" htmlFor="ev-starts">
+                  <DateTimePicker className={TIME_FIT} id="ev-starts" value={values.startsAt} onValueChange={setStart} />
+                </Field>
+                <Field label="Ends" htmlFor="ev-ends" error={errors.endsAt}>
+                  <DateTimePicker className={TIME_FIT} id="ev-ends" value={values.endsAt} onValueChange={(v) => set("endsAt", v)} min={values.startsAt || undefined} />
+                </Field>
+                <p className="type-body-sm m-0 flex flex-wrap items-center gap-x-1.5 text-text-soft">
+                  <Globe className="size-4 flex-none" />
+                  <span>{zoneName}</span>
+                  {length ? <span>· Runs {length}</span> : <span>· Pick the start and we fill in the end.</span>}
+                </p>
+              </div>
+
+              <Field label="Venue" htmlFor="ev-venue" hint="Optional. Add new places on the Venues page.">
+                <Select id="ev-venue" options={venueOptions} value={values.venueId} onValueChange={(v) => set("venueId", v)} />
+              </Field>
+
+              <Field label="About the event" htmlFor="ev-description" hint="Optional. Shown on the event's public page.">
+                <Textarea id="ev-description" rows={5} value={values.description} onChange={(e) => set("description", e.target.value)} placeholder="What happens, who it's for and what to bring." />
+              </Field>
+
+              <Field label="Category" htmlFor="ev-category" hint="Optional. Visitors can filter by it.">
+                <Input id="ev-category" value={values.category} onChange={(e) => set("category", e.target.value)} placeholder="e.g. Conference, Music" autoComplete="off" />
               </Field>
             </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Field label="Sign-ups open" htmlFor="ev-opens" hint="Optional. Empty means open as soon as it's published.">
-                <DateTimePicker id="ev-opens" value={values.opensAt} onValueChange={(v) => set("opensAt", v)} />
-              </Field>
-              <Field label="Sign-ups close" htmlFor="ev-closes" error={errors.closesAt} hint="Optional. Set it to stop sign-ups early.">
-                <DateTimePicker id="ev-closes" value={values.closesAt} onValueChange={(v) => set("closesAt", v)} min={values.opensAt || undefined} />
-              </Field>
-            </div>
-          </div>
-        </Card>
+          </Card>
 
-        <Card>
-          <CardHeader title="Where and for whom" subtitle="Both optional." />
-          <div className="flex flex-col gap-4">
-            <Field label="Venue" htmlFor="ev-venue" hint="Add new places on the Venues page.">
-              <Select id="ev-venue" options={venueOptions} value={values.venueId} onValueChange={(v) => set("venueId", v)} />
-            </Field>
-            <Field label="Client" htmlFor="ev-client" hint="Who commissioned the event, if anyone.">
-              <Select id="ev-client" options={clientOptions} value={values.clientId} onValueChange={(v) => set("clientId", v)} />
-            </Field>
-          </div>
-        </Card>
+          <section className="flex flex-col gap-3">
+            <h2 className="type-h3 m-0 px-1 text-text">Event options</h2>
+            <Card>
+              <div className="flex flex-col">
+                <OptionRow icon={values.visibility === "PUBLIC" ? <Globe /> : <Link2 />} title="Who can find it" hint={values.visibility === "PUBLIC" ? "Listed on the events site once published." : "Only people you send the link to."}>
+                  <SegmentedControl
+                    aria-label="Who can find it"
+                    value={values.visibility}
+                    onValueChange={(v) => set("visibility", v as EventVisibility)}
+                    options={[
+                      { value: "UNLISTED", label: "Link only" },
+                      { value: "PUBLIC", label: "Public" },
+                    ]}
+                  />
+                </OptionRow>
 
-        <Card>
-          <CardHeader title="Audience" subtitle="Who can find it and how many can come." />
-          <div className="flex flex-col gap-4">
-            <Field label="Visibility" hint={values.visibility === "PUBLIC" ? "Listed on the public site once published." : "Only people with the link can open it."}>
-              <SegmentedControl
-                aria-label="Visibility"
-                value={values.visibility}
-                onValueChange={(v) => set("visibility", v as EventVisibility)}
-                options={[
-                  { value: "UNLISTED", label: "Link only" },
-                  { value: "PUBLIC", label: "Public" },
-                ]}
-              />
-            </Field>
-            <Field label="Capacity" htmlFor="ev-capacity" error={errors.capacity} hint="Optional. Every ticket type's limit must fit within it.">
-              <Input id="ev-capacity" inputMode="numeric" value={values.capacity} error={!!errors.capacity} onChange={(e) => set("capacity", e.target.value)} placeholder="500" autoComplete="off" />
-            </Field>
-          </div>
-        </Card>
+                <OptionRow icon={<Users />} title="Capacity" hint="Leave it empty for no limit. Ticket limits must fit within it." error={errors.capacity}>
+                  <InputGroup
+                    id="ev-capacity"
+                    aria-label="Capacity"
+                    inputMode="numeric"
+                    groupClassName="w-full sm:w-[180px]"
+                    suffix={<InputAddon variant="suffix">people</InputAddon>}
+                    value={values.capacity}
+                    error={!!errors.capacity}
+                    onChange={(e) => set("capacity", e.target.value.replace(/[^\d]/g, ""))}
+                    placeholder="No limit"
+                    autoComplete="off"
+                  />
+                </OptionRow>
+
+                <OptionRow
+                  icon={<CalendarClock />}
+                  title="Sign-up dates"
+                  hint={signupWindow ? "Pick when sign-ups open and close." : "Open from publishing until the event starts."}
+                  error={errors.closesAt}
+                  below={
+                    signupWindow && (
+                      <div className="flex flex-col gap-4 sm:pl-11">
+                        <Field label="Sign-ups open" htmlFor="ev-opens" hint="Optional. Empty means as soon as it's published.">
+                          <DateTimePicker className={TIME_FIT} id="ev-opens" value={values.opensAt} onValueChange={(v) => set("opensAt", v)} />
+                        </Field>
+                        <Field label="Sign-ups close" htmlFor="ev-closes" hint="Optional. Set it to stop sign-ups early.">
+                          <DateTimePicker className={TIME_FIT} id="ev-closes" value={values.closesAt} onValueChange={(v) => set("closesAt", v)} min={values.opensAt || undefined} />
+                        </Field>
+                      </div>
+                    )
+                  }
+                >
+                  <Switch checked={signupWindow} onCheckedChange={toggleSignupWindow} aria-label="Set sign-up dates" />
+                </OptionRow>
+
+                <OptionRow icon={<UserRound />} title="Client" hint="Who commissioned the event, if anyone.">
+                  <div className="w-full sm:w-[240px]">
+                    <Select id="ev-client" options={clientOptions} value={values.clientId} onValueChange={(v) => set("clientId", v)} />
+                  </div>
+                </OptionRow>
+
+                {slugEditable && (
+                  <OptionRow
+                    icon={<Link2 />}
+                    title="Web address"
+                    hint={values.slug.trim() ? "Fixed once you publish." : suggestedSlug ? `Left empty, it will be ${suggestedSlug}. Fixed once you publish.` : "Made from the name if left empty. Fixed once you publish."}
+                    error={errors.slug}
+                    below={
+                      <div className="sm:pl-11">
+                        <InputGroup
+                          id="ev-slug"
+                          aria-label="Web address"
+                          leading={<InputAddon>{organizationSlug ? `events/${organizationSlug}/` : "events/"}</InputAddon>}
+                          value={values.slug}
+                          error={!!errors.slug}
+                          onChange={(e) => set("slug", e.target.value.toLowerCase())}
+                          placeholder={suggestedSlug || "banking-forum-2027"}
+                          autoComplete="off"
+                          spellCheck={false}
+                        />
+                      </div>
+                    }
+                  />
+                )}
+              </div>
+            </Card>
+          </section>
+        </div>
       </form>
 
       <ConfirmDialog

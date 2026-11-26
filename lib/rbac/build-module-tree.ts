@@ -1,6 +1,6 @@
 import type { NavigationNode } from "@/lib/auth-token";
 import { frontendPathFor } from "@/lib/constants/module-routes";
-import { SIDEBAR_HIDDEN_MODULES, normalizeModuleCode } from "@/lib/constants/modules";
+import { SIDEBAR_HIDDEN_MODULES, moduleForPath, normalizeModuleCode } from "@/lib/constants/modules";
 
 /** A menu entry the app can show: a page with a frontend path, or a group of them. */
 export interface ModuleTreeNode {
@@ -14,8 +14,10 @@ export interface ModuleTreeNode {
 }
 
 /**
- * The backend's navigation tree → the entries this app can show, in the backend's order. A page is kept when the role
- * may view it and a screen exists for its `route_name`; a group is kept when anything inside it is kept.
+ * The backend's navigation tree → the entries this app can show, in the backend's order. A page is kept when a screen
+ * exists for its `route_name` and the role may view **the module that guards that screen** (`ROUTE_MODULE_MAP`): for a
+ * permission module that is the module itself; for a menu-only module (e.g. Venues, guarded by EVENTS) it is the
+ * guard, because the API sends menu-only modules to every role. A group is kept when anything inside it is kept.
  */
 export function buildModuleTree(navigation: NavigationNode[], canView: (code: string) => boolean): ModuleTreeNode[] {
   const prune = (node: NavigationNode): ModuleTreeNode | null => {
@@ -23,8 +25,8 @@ export function buildModuleTree(navigation: NavigationNode[], canView: (code: st
     if (SIDEBAR_HIDDEN_MODULES.has(code)) return null;
     const children = node.children.map(prune).filter((n): n is ModuleTreeNode => n !== null);
     const href = frontendPathFor(node.routeName);
-    // A page needs `view`. A group (no route) carries no permission of its own: it shows when a child does.
-    const page = href && canView(code) ? href : null;
+    // A page needs `view` on the module guarding its screen. A group (no route) shows when a child does.
+    const page = href && canView(moduleForPath(href) ?? code) ? href : null;
     if (!page && children.length === 0) return null;
     return { code, label: node.moduleName, href: page, icon: node.icon, children };
   };

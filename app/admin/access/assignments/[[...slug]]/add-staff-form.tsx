@@ -1,23 +1,30 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Building2, CheckCircle2, Copy, KeyRound, Phone, Search, ShieldCheck, UserPlus, Wand2 } from "lucide-react";
 import { useState } from "react";
-import { Breadcrumb } from "@/components/ui/breadcrumb";
+import type { ReactNode } from "react";
+import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorBanner } from "@/components/ui/error-banner";
 import { Field } from "@/components/ui/field";
-import { CheckIcon, InfoIcon } from "@/components/ui/icons";
+import { InfoIcon } from "@/components/ui/icons";
 import { Input } from "@/components/ui/input";
 import { Note } from "@/components/ui/note";
 import { PasswordInput } from "@/components/ui/password-input";
 import { PhoneInput } from "@/components/ui/phone-input";
+import { Pill } from "@/components/ui/pill";
 import { Select } from "@/components/ui/select";
+import { SelectCard } from "@/components/ui/select-card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toaster";
 import { ApiError } from "@/lib/api-client";
 import { listAllBranches } from "@/lib/api/branches";
 import { describeApiError } from "@/lib/api/errors";
 import { listRoles } from "@/lib/api/roles";
+import type { Role } from "@/lib/api/roles";
 import { assignStaff, lookUpStaff } from "@/lib/api/staff";
 import type { StaffLookup } from "@/lib/api/staff";
 import { groupPhone, phoneDigits, validatePhone } from "@/lib/marketplace/validation";
@@ -60,6 +67,46 @@ function generatePassword(length = 12): string {
 function nationalMobile(raw: string): string {
   const grouped = groupPhone(raw);
   return grouped ? `0${grouped}` : raw;
+}
+
+const initialsOf = (name: string) =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase() || "?";
+
+/** "6 areas": how many parts of the app a role opens, so roles can be told apart at a glance. */
+function reachOf(role: Role): string {
+  const areas = role.grants.filter((g) => g.view).length;
+  return areas === 1 ? "1 area" : `${areas} areas`;
+}
+
+/** A line of the summary card: an icon and a value, or a faint placeholder when it's empty. */
+function PreviewLine({ icon, value, empty }: { icon: ReactNode; value: string; empty: string }) {
+  return (
+    <p className={value ? "type-body-sm m-0 flex min-w-0 items-center gap-2 text-text-soft" : "type-body-sm m-0 flex items-center gap-2 text-text-faint"}>
+      <span className="flex-none [&_svg]:size-4">{icon}</span>
+      <span className="truncate">{value || empty}</span>
+    </p>
+  );
+}
+
+/** A numbered step heading: the number turns into a tick once the step is done. */
+function StepHeading({ step, done, title, description }: { step: number; done: boolean; title: string; description: string }) {
+  return (
+    <div className="flex items-start gap-3 px-1">
+      <span className={done ? "flex size-6 flex-none items-center justify-center rounded-full bg-success-fill text-white" : "type-label flex size-6 flex-none items-center justify-center rounded-full bg-surface-2 text-text-soft"}>
+        {done ? <CheckCircle2 className="size-4" /> : step}
+      </span>
+      <div className="flex flex-col gap-0.5">
+        <h2 className="type-h3 m-0 text-text">{title}</h2>
+        <p className="type-body-sm m-0 text-text-soft">{description}</p>
+      </div>
+    </div>
+  );
 }
 
 type Errors = {
@@ -255,26 +302,50 @@ export function AddStaffForm({ organizationId, hasBranches, onDone }: { organiza
 
   if (handover) {
     return (
-      <div className="flex flex-col gap-6">
-        <div className="flex flex-col gap-3">
-          <Breadcrumb items={[{ label: "Staff assignments", onClick: closeHandover }, { label: "Sign-in details" }]} />
-          <div className="flex flex-col gap-0.5">
-            <h1 className="type-h1 m-0 text-text">Cheche account created</h1>
-            <p className="type-body m-0 text-text-soft">Share these one-time details with {handover.name}.</p>
-          </div>
+      <div className="flex w-full max-w-6xl flex-col gap-6">
+        <div className="flex flex-col gap-0.5">
+          <h1 className="type-h1 m-0 text-text">Cheche account created</h1>
+          <p className="type-body m-0 text-text-soft">Share these one-time sign-in details with {handover.name}.</p>
         </div>
 
         <Card className="max-w-xl">
-          <CardHeader title="Hand-over details" />
-          <div className="flex flex-col gap-4">
-            <Note icon={<InfoIcon />}>
-              Give {handover.name} these sign-in details: mobile <b className="text-text">{handover.mobileDisplay}</b>, password{" "}
-              <code className="rounded-sm bg-surface-2 px-1.5 py-0.5 font-mono text-text">{handover.password}</code>. You won&apos;t see the password again.
+          <div className="flex flex-col gap-5">
+            <div className="flex items-center gap-3">
+              <Avatar initials={initialsOf(handover.name)} size={48} />
+              <div className="flex min-w-0 flex-col gap-1">
+                <p className="type-h3 m-0 break-words text-text">{handover.name}</p>
+                <div>
+                  <Pill tone="success" size="sm">
+                    Role given
+                  </Pill>
+                </div>
+              </div>
+            </div>
+            <dl className="m-0 flex flex-col divide-y divide-border rounded-md border border-border">
+              <div className="flex items-center justify-between gap-4 px-4 py-3">
+                <dt className="type-body-sm flex items-center gap-2 text-text-soft">
+                  <Phone className="size-4" />
+                  Mobile
+                </dt>
+                <dd className="type-body m-0 font-semibold text-text">{handover.mobileDisplay}</dd>
+              </div>
+              <div className="flex items-center justify-between gap-4 px-4 py-3">
+                <dt className="type-body-sm flex items-center gap-2 text-text-soft">
+                  <KeyRound className="size-4" />
+                  Password
+                </dt>
+                <dd className="m-0">
+                  <code className="type-body rounded-sm bg-surface-2 px-2 py-1 font-mono text-text">{handover.password}</code>
+                </dd>
+              </div>
+            </dl>
+            <Note icon={<InfoIcon />} className="mt-0">
+              You won&apos;t see this password again. Copy it now and give it to them in person or by a private message.
             </Note>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               <Button variant="secondary" type="button" onClick={() => void copyHandover()}>
-                {copied && <CheckIcon className="size-4" />}
-                {copied ? "Copied" : "Copy"}
+                {copied ? <CheckCircle2 className="size-4" /> : <Copy className="size-4" />}
+                {copied ? "Copied" : "Copy details"}
               </Button>
               <Button type="button" onClick={closeHandover}>
                 Done
@@ -287,177 +358,232 @@ export function AddStaffForm({ organizationId, hasBranches, onDone }: { organiza
   }
 
   const activeRoles = (roles.data ?? []).filter((r) => r.is_active);
+  const role = activeRoles.find((r) => r.id === roleId);
+  const branchOptions = [{ value: ORGANIZATION_WIDE, label: "Whole organization" }, ...(branches.data ?? []).filter((b) => b.is_active).map((b) => ({ value: b.id, label: b.name }))];
+  const whereLabel = branchOptions.find((o) => o.value === branchId)?.label ?? "Whole organization";
+  const newName = [firstname.trim(), middlename.trim(), lastname.trim()].filter(Boolean).join(" ");
+  const personName = found ? nameOf(found) : missingAccount ? newName : "";
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-3">
-        <Breadcrumb items={[{ label: "Staff assignments", onClick: () => onDone() }, { label: "Add staff" }]} />
+    <div className="flex w-full max-w-6xl flex-col gap-6">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div className="flex flex-col gap-0.5">
           <h1 className="type-h1 m-0 text-text">Add staff</h1>
           <p className="type-body m-0 text-text-soft">Give someone a role in this organization, or create a Cheche account if they don&apos;t have one yet.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" type="button" onClick={() => onDone()}>
+            Cancel
+          </Button>
+          <Button type="button" disabled={!readyForRole} loading={assign.isPending} loadingLabel={missingAccount ? "Creating the account" : "Giving the role"} onClick={give}>
+            {missingAccount ? "Create account and give role" : "Give role"}
+          </Button>
         </div>
       </div>
 
       {failure && <ErrorBanner>{failure}</ErrorBanner>}
 
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader title="1. Find the person" subtitle="Look up their mobile number in Cheche accounts." />
-          <form onSubmit={find} noValidate className="flex flex-col gap-4">
-            <Field label="Mobile number" htmlFor="st-mobile" required error={errors.mobile} hint="The Ethiopian mobile they sign in with.">
-              <PhoneInput
-                id="st-mobile"
-                value={mobile}
-                error={!!errors.mobile}
-                onValueChange={(v) => {
-                  setMobile(v);
-                  setFound(null);
-                  setMissingAccount(false);
-                  setPassword("");
-                  setErrors({});
-                }}
-              />
-            </Field>
-            <div>
-              <Button type="submit" variant="secondary" loading={lookup.isPending} loadingLabel="Looking up">
-                Look up
-              </Button>
-            </div>
-
-            {found && (
-              <div className="rounded-md border border-border bg-surface-2 px-4 py-3" role="status">
-                <p className="type-label m-0 text-text-faint">Is this the right person?</p>
-                <p className="type-body m-0 mt-0.5 font-medium text-text">{nameOf(found)}</p>
-                <p className="type-body-sm m-0 text-text-soft">{found.mobile ?? e164}</p>
-              </div>
-            )}
-
-            {missingAccount && (
-              <div className="flex flex-col gap-4 rounded-md border border-border bg-surface-2 p-4">
-                <p className="m-0 type-body-sm font-medium text-text">This number has no Cheche account yet. Create one for them:</p>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <Field label="First name" htmlFor="na-first" required error={errors.firstname}>
-                    <Input
-                      id="na-first"
-                      value={firstname}
-                      error={!!errors.firstname}
-                      maxLength={100}
-                      autoComplete="off"
-                      onChange={(e) => {
-                        setFirstname(e.target.value);
-                        setErrors((prev) => ({ ...prev, firstname: undefined }));
-                      }}
-                    />
-                  </Field>
-                  <Field label="Middle name" htmlFor="na-middle" error={errors.middlename} hint="Optional.">
-                    <Input
-                      id="na-middle"
-                      value={middlename}
-                      error={!!errors.middlename}
-                      maxLength={100}
-                      autoComplete="off"
-                      onChange={(e) => {
-                        setMiddlename(e.target.value);
-                        setErrors((prev) => ({ ...prev, middlename: undefined }));
-                      }}
-                    />
-                  </Field>
-                </div>
-                <Field label="Last name" htmlFor="na-last" required error={errors.lastname}>
-                  <Input
-                    id="na-last"
-                    value={lastname}
-                    error={!!errors.lastname}
-                    maxLength={100}
-                    autoComplete="off"
-                    onChange={(e) => {
-                      setLastname(e.target.value);
-                      setErrors((prev) => ({ ...prev, lastname: undefined }));
-                    }}
-                  />
-                </Field>
-                <div className="flex flex-col gap-1.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <label htmlFor="na-password" className="type-body-sm font-medium text-text">
-                      Password <span className="text-danger-text">*</span>
-                    </label>
-                    <button
-                      type="button"
-                      className="type-body-sm font-medium text-accent-text hover:underline"
-                      onClick={() => {
-                        setPassword(generatePassword());
-                        setErrors((prev) => ({ ...prev, password: undefined }));
-                      }}
-                    >
-                      Generate
-                    </button>
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)] lg:gap-8">
+        {/* Left: what will happen, filled in as the steps are done. Stays in view while the page scrolls. */}
+        <aside className="flex flex-col gap-3 lg:sticky lg:top-6">
+          <Card>
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center gap-3">
+                <Avatar initials={initialsOf(personName)} size={48} />
+                <div className="flex min-w-0 flex-col gap-1">
+                  <p className={personName ? "type-h3 m-0 break-words text-text" : "type-h3 m-0 text-text-faint"}>{personName || (missingAccount ? "Their name" : "Find the person")}</p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Pill tone={found ? "success" : missingAccount ? "warning" : "neutral"} size="sm">
+                      {found ? "Cheche account found" : missingAccount ? "New Cheche account" : "Not looked up yet"}
+                    </Pill>
                   </div>
-                  <PasswordInput
-                    id="na-password"
-                    autoComplete="new-password"
-                    value={password}
-                    strengthMeter
-                    error={!!errors.password}
-                    onValueChange={(v) => {
-                      setPassword(v);
-                      setErrors((prev) => ({ ...prev, password: undefined }));
-                    }}
-                  />
-                  {errors.password ? (
-                    <p role="alert" className="m-0 text-[12px] text-danger-text">
-                      {errors.password}
-                    </p>
-                  ) : (
-                    <p className="m-0 text-[12px] text-text-faint">At least 8 characters. Give this password to them once finished.</p>
-                  )}
                 </div>
               </div>
-            )}
-          </form>
-        </Card>
-
-        <Card disabled={!readyForRole}>
-          <CardHeader title="2. Choose their role" subtitle={readyForRole ? "What they can see and do here." : "Look up the person first."} />
-          <div className="flex flex-col gap-4">
-            <Field label="Role" htmlFor="st-role" required error={errors.role}>
-              <Select
-                id="st-role"
-                disabled={!readyForRole}
-                loading={roles.isPending}
-                placeholder="Choose a role"
-                options={activeRoles.map((r) => ({ value: r.id, label: r.name }))}
-                value={roleId}
-                onValueChange={(v) => {
-                  setRoleId(v);
-                  setErrors((prev) => ({ ...prev, role: undefined }));
-                }}
-              />
-            </Field>
-            {hasBranches && (
-              <Field label="Where" htmlFor="st-branch" error={errors.branch} hint="One branch only, or the whole organization.">
-                <Select
-                  id="st-branch"
-                  disabled={!readyForRole}
-                  loading={branches.isPending}
-                  options={[{ value: ORGANIZATION_WIDE, label: "Whole organization" }, ...(branches.data ?? []).filter((b) => b.is_active).map((b) => ({ value: b.id, label: b.name }))]}
-                  value={branchId}
-                  onValueChange={(v) => {
-                    setBranchId(v);
-                    setErrors((prev) => ({ ...prev, branch: undefined }));
-                  }}
-                />
-              </Field>
-            )}
-            <div className="flex items-center gap-2">
-              <Button disabled={!readyForRole} loading={assign.isPending} loadingLabel="Giving the role" onClick={give}>
-                Give role
-              </Button>
-              <Button variant="secondary" onClick={() => onDone()}>
-                Cancel
-              </Button>
+              <div className="flex flex-col gap-2 border-t border-border pt-4">
+                <PreviewLine icon={<Phone />} value={readyForRole ? (found?.mobile ?? nationalMobile(e164)) : ""} empty="No mobile yet" />
+                <PreviewLine icon={<ShieldCheck />} value={role ? role.name : ""} empty="No role chosen" />
+                {hasBranches && <PreviewLine icon={<Building2 />} value={whereLabel} empty="Whole organization" />}
+              </div>
             </div>
-          </div>
-        </Card>
+          </Card>
+          <p className="type-body-sm m-0 px-1 text-text-faint">You can change the role or switch it off later.</p>
+        </aside>
+
+        {/* Right: the two steps. */}
+        <div className="flex flex-col gap-6">
+          <section className="flex flex-col gap-3">
+            <StepHeading step={1} done={readyForRole} title="Find the person" description="Look up their mobile number in Cheche accounts." />
+            <Card>
+              <form onSubmit={find} noValidate className="flex flex-col gap-4">
+                <Field label="Mobile number" htmlFor="st-mobile" required error={errors.mobile} hint="The Ethiopian mobile they sign in with.">
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <div className="min-w-0 flex-1">
+                      <PhoneInput
+                        id="st-mobile"
+                        value={mobile}
+                        error={!!errors.mobile}
+                        autoFocus
+                        onValueChange={(v) => {
+                          setMobile(v);
+                          setFound(null);
+                          setMissingAccount(false);
+                          setPassword("");
+                          setErrors({});
+                        }}
+                      />
+                    </div>
+                    <Button type="submit" variant="secondary" loading={lookup.isPending} loadingLabel="Looking up">
+                      <Search className="size-4" />
+                      Look up
+                    </Button>
+                  </div>
+                </Field>
+
+                {found && (
+                  <div className="flex items-center gap-3 rounded-md border border-border bg-surface-2 px-4 py-3" role="status">
+                    <Avatar initials={initialsOf(nameOf(found))} size={36} />
+                    <div className="flex min-w-0 flex-col">
+                      <p className="type-body m-0 font-semibold text-text">{nameOf(found)}</p>
+                      <p className="type-body-sm m-0 text-text-soft">{found.mobile ?? e164} · Check this is the right person.</p>
+                    </div>
+                  </div>
+                )}
+
+                {missingAccount && (
+                  <div className="flex flex-col gap-4 rounded-md border border-border bg-surface-2 p-4">
+                    <div className="flex items-start gap-3">
+                      <UserPlus className="mt-0.5 size-4 flex-none text-text-soft" />
+                      <div className="flex flex-col gap-0.5">
+                        <p className="type-body m-0 font-semibold text-text">No Cheche account uses this number yet</p>
+                        <p className="type-body-sm m-0 text-text-soft">Create one for them. They sign in with this mobile and the password below.</p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                      <Field label="First name" htmlFor="na-first" required error={errors.firstname}>
+                        <Input
+                          id="na-first"
+                          value={firstname}
+                          error={!!errors.firstname}
+                          maxLength={100}
+                          autoComplete="off"
+                          autoFocus
+                          onChange={(e) => {
+                            setFirstname(e.target.value);
+                            setErrors((prev) => ({ ...prev, firstname: undefined }));
+                          }}
+                        />
+                      </Field>
+                      <Field label="Middle name" htmlFor="na-middle" error={errors.middlename} hint="Optional.">
+                        <Input
+                          id="na-middle"
+                          value={middlename}
+                          error={!!errors.middlename}
+                          maxLength={100}
+                          autoComplete="off"
+                          onChange={(e) => {
+                            setMiddlename(e.target.value);
+                            setErrors((prev) => ({ ...prev, middlename: undefined }));
+                          }}
+                        />
+                      </Field>
+                      <Field label="Last name" htmlFor="na-last" required error={errors.lastname}>
+                        <Input
+                          id="na-last"
+                          value={lastname}
+                          error={!!errors.lastname}
+                          maxLength={100}
+                          autoComplete="off"
+                          onChange={(e) => {
+                            setLastname(e.target.value);
+                            setErrors((prev) => ({ ...prev, lastname: undefined }));
+                          }}
+                        />
+                      </Field>
+                    </div>
+                    <Field label="Password" htmlFor="na-password" required error={errors.password} hint="At least 8 characters. You'll see it once more after saving, to hand it over.">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+                        <div className="min-w-0 flex-1">
+                          <PasswordInput
+                            id="na-password"
+                            autoComplete="new-password"
+                            value={password}
+                            strengthMeter
+                            error={!!errors.password}
+                            onValueChange={(v) => {
+                              setPassword(v);
+                              setErrors((prev) => ({ ...prev, password: undefined }));
+                            }}
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => {
+                            setPassword(generatePassword());
+                            setErrors((prev) => ({ ...prev, password: undefined }));
+                          }}
+                        >
+                          <Wand2 className="size-4" />
+                          Generate
+                        </Button>
+                      </div>
+                    </Field>
+                  </div>
+                )}
+              </form>
+            </Card>
+          </section>
+
+          <section className="flex flex-col gap-3">
+            <StepHeading step={2} done={Boolean(role)} title="Choose their role" description={readyForRole ? "What they can see and do here." : "Look up the person first."} />
+            <Card disabled={!readyForRole}>
+              <div className="flex flex-col gap-5">
+                <Field label="Role" required error={errors.role}>
+                  {roles.isPending ? (
+                    <div className="flex flex-col gap-2">
+                      <Skeleton shape="block" height={56} />
+                      <Skeleton shape="block" height={56} />
+                    </div>
+                  ) : activeRoles.length === 0 ? (
+                    <EmptyState size="sm" title="No roles yet" description="Add a role under Roles first." />
+                  ) : (
+                    <div role="radiogroup" aria-label="Role" className="flex flex-col gap-2">
+                      {activeRoles.map((r) => (
+                        <SelectCard
+                          key={r.id}
+                          disabled={!readyForRole}
+                          selected={roleId === r.id}
+                          onClick={() => {
+                            setRoleId(r.id);
+                            setErrors((prev) => ({ ...prev, role: undefined }));
+                          }}
+                          title={r.name}
+                          subtitle={r.description || `Opens ${reachOf(r)} of the app.`}
+                          value={reachOf(r)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </Field>
+                {hasBranches && (
+                  <Field label="Where" htmlFor="st-branch" error={errors.branch} hint="One branch only, or the whole organization.">
+                    <Select
+                      id="st-branch"
+                      disabled={!readyForRole}
+                      loading={branches.isPending}
+                      options={branchOptions}
+                      value={branchId}
+                      onValueChange={(v) => {
+                        setBranchId(v);
+                        setErrors((prev) => ({ ...prev, branch: undefined }));
+                      }}
+                    />
+                  </Field>
+                )}
+              </div>
+            </Card>
+          </section>
+        </div>
       </div>
     </div>
   );

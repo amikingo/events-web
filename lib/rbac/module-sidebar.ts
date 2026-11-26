@@ -1,42 +1,30 @@
-import {
-  Boxes,
-  Briefcase,
-  Building,
-  Building2,
-  Calendar,
-  CalendarDays,
-  Copy,
-  GitBranch,
-  KeyRound,
-  LayoutDashboard,
-  ShieldCheck,
-  SlidersHorizontal,
-  Users,
-} from "lucide-react";
+import { Briefcase, Building, Building2, Calendar, CalendarDays, GitBranch, LayoutDashboard, ShieldCheck, Users, icons } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ModuleTreeNode } from "@/lib/rbac/build-module-tree";
 
 /**
- * Sidebar icons are Lucide icons, as in bookings_web. The backend names an icon for every module and group (`icon` in
- * `/me` → `navigation`), so that name is used first. Only the names the backend uses are imported, which keeps the
- * rest of Lucide out of the page: when a backend migration adds a module with a new icon name, add it here.
+ * Sidebar icons are Lucide icons, as in bookings_web: any of Lucide's icons, found by the name the backend sends for a
+ * module (`icon` in `/me` → `navigation`, or typed on the module form). Looked up in Lucide's own `icons` list, so only
+ * real icons match, never the package's other exports.
  */
-const BACKEND_ICONS: Record<string, LucideIcon> = {
-  Boxes,
-  Briefcase,
-  Building,
-  Building2,
-  Calendar,
-  CalendarDays,
-  Copy,
-  GitBranch,
-  KeyRound,
-  ShieldCheck,
-  SlidersHorizontal,
-  Users,
-};
+const LUCIDE: Record<string, LucideIcon> = icons;
+const LUCIDE_NAMES = Object.keys(LUCIDE);
 
-/** When the backend sent no icon, or one not imported above: by module or group code (same codes as the backend). */
+/**
+ * The Lucide icon a name means, written any way people write it: "CalendarDays" (the code name), "calendar-days" (the
+ * lucide.dev name), "calendar_days" or "calendar days". Returns the code name, or null when Lucide has no such icon.
+ */
+export function normalizeLucideIconName(name: string | null | undefined): string | null {
+  const trimmed = name?.trim();
+  if (!trimmed) return null;
+  if (trimmed in LUCIDE) return trimmed;
+  const pascal = trimmed.replace(/[-_\s]+(.)?/g, (_, c: string | undefined) => (c ? c.toUpperCase() : "")).replace(/^./, (c) => c.toUpperCase());
+  if (pascal in LUCIDE) return pascal;
+  const loose = trimmed.replace(/[-_\s]/g, "").toLowerCase();
+  return LUCIDE_NAMES.find((key) => key.toLowerCase() === loose) ?? null;
+}
+
+/** When the backend sent no icon, or a name Lucide doesn't have: by module or group code (same codes as the backend). */
 const ICON_BY_CODE: Record<string, LucideIcon> = {
   EVENT_MANAGEMENT: CalendarDays,
   ADMINISTRATION: Building2,
@@ -49,7 +37,8 @@ const ICON_BY_CODE: Record<string, LucideIcon> = {
 };
 
 export function iconForModule(code: string, backendIcon: string | null): LucideIcon {
-  return (backendIcon ? BACKEND_ICONS[backendIcon.trim()] : undefined) ?? ICON_BY_CODE[code] ?? LayoutDashboard;
+  const name = normalizeLucideIconName(backendIcon);
+  return (name ? LUCIDE[name] : undefined) ?? ICON_BY_CODE[code] ?? LayoutDashboard;
 }
 
 export interface ModuleSidebarPage {

@@ -1,8 +1,5 @@
 "use client";
 
-import { AlertCircleIcon } from "@/components/ui/icons";
-import { Card, CardHeader } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import type { GrantAction, GrantableModule, RoleGrantInput } from "@/lib/api/roles";
 
 export const ALL_GRANT_ACTIONS: readonly GrantAction[] = [
@@ -14,16 +11,6 @@ export const ALL_GRANT_ACTIONS: readonly GrantAction[] = [
   "export",
   "notify",
 ];
-
-const ACTION_HEADERS: Record<GrantAction, string> = {
-  view: "View",
-  create: "Create",
-  update: "Update",
-  delete: "Delete",
-  import: "Import",
-  export: "Export",
-  notify: "Notify",
-};
 
 /**
  * Fallback used only when the Super Admin opens Role Templates on a brand-new platform before any organization exists
@@ -146,88 +133,4 @@ export function toggleGrantFlag(grants: GrantState, moduleCode: string, action: 
         ? { ...current, view: true, [action]: true }
         : { ...current, [action]: false };
   return { ...grants, [moduleCode]: next };
-}
-
-interface GrantGridProps {
-  visibleModules: readonly GrantableModule[];
-  grants: GrantState;
-  errors: Record<string, string>;
-  onToggle: (moduleCode: string, action: GrantAction, checked: boolean) => void;
-}
-
-/** Shared dynamic 7-column module × action matrix built from `GET /grantable-modules`. */
-export function GrantGrid({ visibleModules, grants, errors, onToggle }: GrantGridProps) {
-  return (
-    <Card>
-      <CardHeader
-        title="Access"
-        subtitle="Ticking any other box also ticks View. Unticking View clears the row."
-      />
-      <div className="overflow-x-auto rounded-sm border border-border">
-        <div className="hidden min-w-[640px] grid-cols-[minmax(160px,1fr)_repeat(7,64px)] items-center border-b border-border bg-surface-2 px-4 py-2.5 sm:grid">
-          <span className="type-label text-text-soft">Module</span>
-          {ALL_GRANT_ACTIONS.map((action) => (
-            <span key={action} className="type-label text-center text-text-soft">
-              {ACTION_HEADERS[action]}
-            </span>
-          ))}
-        </div>
-        <div className="divide-y divide-border sm:min-w-[640px]">
-          {visibleModules.map((mod) => {
-            const row = grants[mod.module_code] ?? emptyFlags();
-            const rowError = errors[mod.module_code];
-
-            return (
-              <div
-                key={mod.module_code}
-                className="flex flex-col gap-3 px-4 py-3 sm:grid sm:grid-cols-[minmax(160px,1fr)_repeat(7,64px)] sm:items-center sm:gap-0"
-              >
-                <div className="flex flex-col gap-1 pr-2">
-                  <span className="type-body font-medium text-text">{mod.module_name}</span>
-                  {rowError && (
-                    <p role="alert" className="m-0 flex items-center gap-1.5 text-[11.5px] text-danger-text">
-                      <AlertCircleIcon className="size-3 flex-none" />
-                      {rowError}
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap items-center gap-x-5 gap-y-2 sm:contents">
-                  {ALL_GRANT_ACTIONS.map((action) => {
-                    const supported = mod.actions.includes(action);
-                    const label = ACTION_HEADERS[action];
-                    return (
-                      <div key={action} className="flex items-center sm:justify-center">
-                        {supported ? (
-                          <>
-                            <div className="sm:hidden">
-                              <Checkbox
-                                checked={row[action]}
-                                label={label}
-                                onCheckedChange={(checked) => onToggle(mod.module_code, action, checked)}
-                              />
-                            </div>
-                            <div className="hidden sm:flex">
-                              <Checkbox
-                                checked={row[action]}
-                                aria-label={`${mod.module_name} ${label}`}
-                                onCheckedChange={(checked) => onToggle(mod.module_code, action, checked)}
-                              />
-                            </div>
-                          </>
-                        ) : (
-                          <span className="hidden type-body-sm text-text-faint sm:inline">—</span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-      <p className="m-0 mt-3 type-body-sm text-text-faint">Delete, import and notify take effect where a screen offers them.</p>
-    </Card>
-  );
 }

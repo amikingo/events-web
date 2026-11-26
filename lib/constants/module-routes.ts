@@ -7,6 +7,8 @@
  */
 export const MODULE_ROUTES: Record<string, string> = {
   "/events": "/admin/events",
+  // Menu-only module (create it on Access › Modules: code VENUES, address /venues); guarded by EVENTS.
+  "/venues": "/admin/venues",
   "/clients": "/admin/clients",
   "/guests": "/admin/guests",
   "/organizations": "/admin/organizations",

@@ -260,7 +260,7 @@ function StaffView({ organizationId }: { organizationId: string }) {
   }
 
   const filterBar = (
-    <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+    <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
       <Select
         aria-label="Filter by role"
         value={roleFilter}

@@ -60,7 +60,8 @@ const columns: ColumnDef<StaffAssignment>[] = [
         <Avatar initials={initialsOf(a)} size={32} />
         <div className="flex min-w-0 flex-col">
           <span className="type-body font-medium text-text">{nameOf(a)}</span>
-          <span className="type-body-sm text-text-faint">{a.profile?.mobile ?? "Cheche account unavailable"}</span>
+          {/* The mobile has its own column; only say so here when the account can't be read. */}
+          {!a.profile && <span className="type-body-sm text-text-faint">Cheche account unavailable</span>}
         </div>
       </div>
     ),
@@ -222,7 +223,7 @@ function PlatformStaffView() {
   }
 
   const filterBar = (
-    <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+    <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
       <Select
         aria-label="Filter by role"
         value={roleFilter}

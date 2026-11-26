@@ -1,13 +1,17 @@
 "use client";
 
+import { Building, MapPin, Navigation, Users } from "lucide-react";
 import { useState } from "react";
-import { Breadcrumb } from "@/components/ui/breadcrumb";
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
+import { Combobox } from "@/components/ui/combobox";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ErrorBanner } from "@/components/ui/error-banner";
 import { Field } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { IconTile } from "@/components/ui/icon-tile";
+import { Input, InputAddon, InputGroup } from "@/components/ui/input";
+import { Pill } from "@/components/ui/pill";
 import type { Venue, VenueInput } from "@/lib/api/venues";
 
 interface Values {
@@ -18,6 +22,18 @@ interface Values {
   capacity: string;
 }
 type Errors = Partial<Record<keyof Values, string>>;
+
+const NO_COUNTRY = "none";
+/** Countries venues are most likely in first; names come from the browser, in English. */
+const COUNTRY_CODES = ["ET", "KE", "DJ", "ER", "SO", "SD", "SS", "UG", "TZ", "RW", "NG", "GH", "ZA", "EG", "AE", "SA", "TR", "IN", "CN", "GB", "DE", "FR", "IT", "NL", "SE", "US", "CA", "AU"];
+const regionName = (() => {
+  try {
+    const names = new Intl.DisplayNames(["en"], { type: "region" });
+    return (code: string) => names.of(code) ?? code;
+  } catch {
+    return (code: string) => code;
+  }
+})();
 
 const startValues = (v?: Venue): Values => ({
   name: v?.name ?? "",
@@ -30,7 +46,6 @@ const startValues = (v?: Venue): Values => ({
 function validate(v: Values): Errors {
   const e: Errors = {};
   if (!v.name.trim()) e.name = "Enter the venue's name.";
-  if (v.country.trim() && !/^[A-Za-z]{2}$/.test(v.country.trim())) e.country = "Use the two-letter code, like ET.";
   if (v.capacity.trim() && !/^[1-9]\d{0,6}$/.test(v.capacity.trim())) e.capacity = "Enter a whole number above 0.";
   return e;
 }
@@ -46,6 +61,16 @@ function toInput(v: Values): VenueInput {
   };
 }
 
+/** A line of the preview card: an icon and a value, or a faint placeholder when it's empty. */
+function PreviewLine({ icon, value, empty }: { icon: ReactNode; value: string; empty: string }) {
+  return (
+    <p className={value ? "type-body-sm m-0 flex min-w-0 items-center gap-2 text-text-soft" : "type-body-sm m-0 flex items-center gap-2 text-text-faint"}>
+      <span className="flex-none [&_svg]:size-4">{icon}</span>
+      <span className="truncate">{value || empty}</span>
+    </p>
+  );
+}
+
 interface VenueFormProps {
   /** The venue being edited. Leave out to create one. */
   venue?: Venue;
@@ -54,7 +79,7 @@ interface VenueFormProps {
   onCancel: () => void;
 }
 
-/** Create and edit page for a venue: cards of fields, buttons in the header so they stay in view. */
+/** Create and edit page for a venue, laid out like the other forms: a live preview on the left, the fields on the right. */
 export function VenueForm({ venue, onSubmit, onCancel }: VenueFormProps) {
   const editing = Boolean(venue);
   const [start] = useState(() => startValues(venue));
@@ -91,12 +116,19 @@ export function VenueForm({ venue, onSubmit, onCancel }: VenueFormProps) {
   }
 
   const errorCount = Object.values(errors).filter(Boolean).length;
+  const name = values.name.trim();
+  const country = values.country.trim().toUpperCase();
+  const place = [values.city.trim(), country ? regionName(country) : ""].filter(Boolean).join(", ");
+  const capacity = values.capacity.trim() ? Number(values.capacity.trim()) : 0;
+  const countryOptions = [
+    { value: NO_COUNTRY, label: "Not set" },
+    ...[...COUNTRY_CODES, ...(country && !COUNTRY_CODES.includes(country) ? [country] : [])].map((code) => ({ value: code, label: regionName(code), right: code })),
+  ];
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex w-full max-w-6xl flex-col gap-6">
       <div className="flex flex-col gap-3">
-        <Breadcrumb items={[{ label: "Venues", onClick: cancel }, ...(editing ? [{ label: venue!.name, onClick: cancel }] : []), { label: editing ? "Edit" : "New venue" }]} />
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div className="flex flex-col gap-0.5">
             <h1 className="type-h1 m-0 text-text">{editing ? `Edit ${venue!.name}` : "New venue"}</h1>
             <p className="type-body m-0 text-text-soft">{editing ? "Change where it is." : "A place you hold events. Use it for as many events as you like."}</p>
@@ -112,36 +144,93 @@ export function VenueForm({ venue, onSubmit, onCancel }: VenueFormProps) {
         </div>
       </div>
 
-      {failure && <ErrorBanner>{failure}</ErrorBanner>}
-      {errorCount > 0 && <ErrorBanner>{errorCount === 1 ? "Fix 1 field to continue." : `Fix ${errorCount} fields to continue.`}</ErrorBanner>}
+      {(failure || errorCount > 0) && (
+        <div className="flex flex-col gap-2">
+          {failure && <ErrorBanner>{failure}</ErrorBanner>}
+          {errorCount > 0 && <ErrorBanner>{errorCount === 1 ? "Fix 1 field to continue." : `Fix ${errorCount} fields to continue.`}</ErrorBanner>}
+        </div>
+      )}
 
-      <form id="venue-form" onSubmit={submit} noValidate className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader title="Venue" subtitle="What it's called and where it is." />
-          <div className="flex flex-col gap-4">
-            <Field label="Name" htmlFor="vn-name" required error={errors.name}>
-              <Input id="vn-name" value={values.name} error={!!errors.name} onChange={(e) => set("name", e.target.value)} placeholder="Skylight Hotel, Grand Ballroom" autoComplete="off" />
-            </Field>
-            <Field label="Address" htmlFor="vn-address">
-              <Input id="vn-address" value={values.address} onChange={(e) => set("address", e.target.value)} placeholder="Bole Road" autoComplete="off" />
-            </Field>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Field label="City" htmlFor="vn-city">
-                <Input id="vn-city" value={values.city} onChange={(e) => set("city", e.target.value)} placeholder="Addis Ababa" autoComplete="off" />
-              </Field>
-              <Field label="Country code" htmlFor="vn-country" error={errors.country} hint="Two letters, like ET.">
-                <Input id="vn-country" value={values.country} error={!!errors.country} onChange={(e) => set("country", e.target.value)} placeholder="ET" autoComplete="off" />
-              </Field>
+      <form id="venue-form" onSubmit={submit} noValidate className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:gap-8">
+        {/* Left: how the venue shows when someone picks it for an event. Stays in view while the form scrolls. */}
+        <aside className="flex flex-col gap-3 lg:sticky lg:top-6">
+          <Card>
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center gap-3">
+                <IconTile tone="charcoal" size="lg">
+                  <MapPin />
+                </IconTile>
+                <div className="flex min-w-0 flex-col gap-1">
+                  <p className={name ? "type-h3 m-0 break-words text-text" : "type-h3 m-0 text-text-faint"}>{name || "Venue name"}</p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Pill tone="neutral" size="sm">
+                      {capacity ? `Holds ${capacity.toLocaleString("en-US")}` : "Size not set"}
+                    </Pill>
+                  </div>
+                </div>
+              </div>
+              <div className="flex flex-col gap-2 border-t border-border pt-4">
+                <PreviewLine icon={<Navigation />} value={values.address.trim()} empty="No street address" />
+                <PreviewLine icon={<Building />} value={place} empty="No city or country" />
+              </div>
             </div>
-          </div>
-        </Card>
+          </Card>
+          <p className="type-body-sm m-0 px-1 text-text-faint">Events show the name and city. Pick it on any event under Venue.</p>
+        </aside>
 
-        <Card>
-          <CardHeader title="Size" subtitle="Optional." />
-          <Field label="Capacity" htmlFor="vn-capacity" error={errors.capacity} hint="How many people the place holds. Each event sets its own limit.">
-            <Input id="vn-capacity" inputMode="numeric" value={values.capacity} error={!!errors.capacity} onChange={(e) => set("capacity", e.target.value)} placeholder="500" autoComplete="off" />
-          </Field>
-        </Card>
+        {/* Right: what it's called, where it is, how big it is. */}
+        <div className="flex flex-col gap-6">
+          <section className="flex flex-col gap-3">
+            <h2 className="type-h3 m-0 px-1 text-text">About the venue</h2>
+            <Card>
+              <div className="flex flex-col gap-5">
+                <Field label="Name" htmlFor="vn-name" required error={errors.name} hint="The building and the room, if it has several.">
+                  <Input id="vn-name" value={values.name} error={!!errors.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Skylight Hotel, Grand Ballroom" autoComplete="off" autoFocus={!editing} />
+                </Field>
+                <Field label="Capacity" htmlFor="vn-capacity" error={errors.capacity} hint="Optional. How many people the place holds. Each event sets its own limit.">
+                  <InputGroup
+                    id="vn-capacity"
+                    inputMode="numeric"
+                    groupClassName="sm:max-w-[240px]"
+                    suffix={
+                      <InputAddon variant="suffix">
+                        <Users className="size-4" />
+                        people
+                      </InputAddon>
+                    }
+                    value={values.capacity}
+                    error={!!errors.capacity}
+                    onChange={(e) => set("capacity", e.target.value.replace(/[^\d]/g, ""))}
+                    placeholder="e.g. 500"
+                    autoComplete="off"
+                  />
+                </Field>
+              </div>
+            </Card>
+          </section>
+
+          <section className="flex flex-col gap-3">
+            <div className="flex flex-col gap-0.5 px-1">
+              <h2 className="type-h3 m-0 text-text">Where it is</h2>
+              <p className="type-body-sm m-0 text-text-soft">Optional. Guests see the city on the event page.</p>
+            </div>
+            <Card>
+              <div className="flex flex-col gap-5">
+                <Field label="Street address" htmlFor="vn-address">
+                  <Input id="vn-address" value={values.address} onChange={(e) => set("address", e.target.value)} placeholder="e.g. Bole Road, near Edna Mall" autoComplete="off" />
+                </Field>
+                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                  <Field label="City" htmlFor="vn-city">
+                    <Input id="vn-city" value={values.city} onChange={(e) => set("city", e.target.value)} placeholder="e.g. Addis Ababa" autoComplete="off" />
+                  </Field>
+                  <Field label="Country" htmlFor="vn-country" hint="Type to search.">
+                    <Combobox id="vn-country" options={countryOptions} value={country || NO_COUNTRY} onValueChange={(v) => set("country", v === NO_COUNTRY ? "" : v)} placeholder="Search countries" emptyText="No country by that name" />
+                  </Field>
+                </div>
+              </div>
+            </Card>
+          </section>
+        </div>
       </form>
 
       <ConfirmDialog

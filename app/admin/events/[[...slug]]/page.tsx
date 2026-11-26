@@ -18,7 +18,7 @@ import type { ColumnDef } from "@/components/ui/table";
 import { toast } from "@/components/ui/toaster";
 import { describeApiError } from "@/lib/api/errors";
 import { listAllClients } from "@/lib/api/clients";
-import { createEvent, getEvent, listEvents, setEventStatus, updateEvent } from "@/lib/api/events";
+import { createEvent, getEvent, listEvents, setEventStatus, updateEvent, uploadEventCover } from "@/lib/api/events";
 import type { EventInput, StaffEvent } from "@/lib/api/events";
 import { getOrganization } from "@/lib/api/organizations";
 import { listAllVenues } from "@/lib/api/venues";
@@ -100,7 +100,8 @@ function EventsView({ organizationId }: { organizationId: string }) {
       enabled: can("read", MODULE_CODES.CUSTOMERS),
     }).data ?? [];
   // The organization's timezone: new events' times are typed in it.
-  const orgTimeZone = useQuery({ queryKey: organizationQk.detail(organizationId), queryFn: ({ signal }) => getOrganization(organizationId, signal) }).data?.timezone ?? FALLBACK_TIMEZONE;
+  const organization = useQuery({ queryKey: organizationQk.detail(organizationId), queryFn: ({ signal }) => getOrganization(organizationId, signal) }).data;
+  const orgTimeZone = organization?.timezone ?? FALLBACK_TIMEZONE;
 
   /**
    * After any change: every event query of this organization is refetched, and so are its guest summaries and lists
@@ -165,24 +166,36 @@ function EventsView({ organizationId }: { organizationId: string }) {
         key={existing?.id ?? "new"}
         event={existing}
         timeZone={existing?.timezone ?? orgTimeZone}
+        organizationSlug={organization?.slug}
         venues={venues}
         clients={clients}
         onCancel={() => go(existing ? `${BASE}/${existing.id}` : BASE)}
-        onSubmit={async (input) => {
+        onSubmit={async (input, cover) => {
+          let savedEvent: StaffEvent;
           try {
             if (existing) {
               const changes = changesFrom(input, existing);
-              const saved = Object.keys(changes).length ? await update.mutateAsync({ id: existing.id, changes }) : existing;
-              toast.success("Changes saved");
-              go(`${BASE}/${saved.id}`);
+              savedEvent = Object.keys(changes).length ? await update.mutateAsync({ id: existing.id, changes }) : existing;
             } else {
-              const created = await create.mutateAsync(input);
-              toast.success("Event created", { body: "It's a draft with a General Admission ticket. Publish it when it's ready." });
-              go(`${BASE}/${created.id}`);
+              savedEvent = await create.mutateAsync(input);
             }
           } catch (e) {
             throw new Error(describeApiError(e, "event"));
           }
+          // The event is saved either way; a photo that fails to upload can be added again from the Cover tab.
+          let coverFailed: unknown = null;
+          if (cover) {
+            try {
+              await uploadEventCover(organizationId, savedEvent.id, cover);
+              saved();
+            } catch (e) {
+              coverFailed = e;
+            }
+          }
+          if (existing) toast.success("Changes saved");
+          else toast.success("Event created", { body: "It's a draft with a General Admission ticket. Publish it when it's ready." });
+          if (coverFailed) toast.error("The photo didn't upload", { body: `${describeApiError(coverFailed, "event")} Add it again from the Cover tab.` });
+          go(`${BASE}/${savedEvent.id}`);
         }}
       />
     );
