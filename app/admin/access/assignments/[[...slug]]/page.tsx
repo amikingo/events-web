@@ -1,7 +1,7 @@
 "use client";
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { NoOrganization, useOrganizationId } from "@/app/admin/_components/organization-scope";
 import { Can, useModuleAccess } from "@/components/ability-provider";
@@ -22,14 +22,15 @@ import { ApiError } from "@/lib/api-client";
 import { listAllBranches } from "@/lib/api/branches";
 import { describeApiError } from "@/lib/api/errors";
 import { listRoles } from "@/lib/api/roles";
-import { changeStaffAssignmentWithMessage, deleteStaffAssignment, getStaffAssignment, listStaffAssignments, setStaffActive } from "@/lib/api/staff";
-import type { StaffAssignment } from "@/lib/api/staff";
+import { changeStaffAssignmentWithMessage, deleteStaffAssignment, getStaffAssignment, listStaffAssignments, setStaffActive, updateStaffProfile } from "@/lib/api/staff";
+import type { StaffAssignment, StaffProfileUpdateInput } from "@/lib/api/staff";
 import { useAuth } from "@/lib/auth-context";
 import { MODULE_CODES } from "@/lib/constants/modules";
 import { useOrganization } from "@/lib/organization-context";
 import { branchQk, roleQk, staffQk } from "@/lib/query-keys";
 import { AddStaffForm } from "./add-staff-form";
 import { ChangeRoleForm } from "./change-role-form";
+import { EditNamesForm } from "./edit-names-form";
 import { StaffOverridesCard } from "./staff-overrides-card";
 
 const BASE = "/admin/access/assignments";
@@ -69,6 +70,7 @@ function go(path: string) {
 
 function StaffView({ organizationId }: { organizationId: string }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { can } = useModuleAccess();
@@ -106,6 +108,15 @@ function StaffView({ organizationId }: { organizationId: string }) {
     onSuccess: (_res, vars) => {
       saved();
       void queryClient.invalidateQueries({ queryKey: staffQk.overrides(organizationId, vars.id) });
+    },
+  });
+  const updateProfile = useMutation({
+    mutationFn: ({ id, changes }: { id: string; changes: StaffProfileUpdateInput }) =>
+      updateStaffProfile(organizationId, id, changes),
+    onSuccess: (_res, vars) => {
+      saved();
+      go(`${BASE}/${vars.id}`);
+      toast.success("Names updated");
     },
   });
   const toggle = useMutation({
@@ -166,7 +177,7 @@ function StaffView({ organizationId }: { organizationId: string }) {
   }
 
 
-  // Changing a role is its own full page.
+  // Editing names or changing a role are full pages under `.../edit`.
   if (location.mode === "edit") {
     const existing = detail.data ?? rows.find((a) => a.id === targetId);
     if (!existing) {
@@ -178,6 +189,19 @@ function StaffView({ organizationId }: { organizationId: string }) {
           title={detail.isError ? "We couldn't load this assignment" : "This person isn't in the list"}
           description={detail.isError ? describeApiError(detail.error, "person") : "They may be on another page, or the assignment was removed. Go back to the list."}
           actions={<Button onClick={() => go(BASE)}>Back to staff</Button>}
+        />
+      );
+    }
+    if (searchParams.get("section") === "names" && canUpdate) {
+      return (
+        <EditNamesForm
+          key={`${existing.id}-names`}
+          assignment={existing}
+          personName={nameOf(existing)}
+          onCancel={() => go(`${BASE}/${existing.id}`)}
+          onSubmit={async (changes) => {
+            await updateProfile.mutateAsync({ id: existing.id, changes });
+          }}
         />
       );
     }
@@ -375,7 +399,11 @@ function StaffView({ organizationId }: { organizationId: string }) {
             </>
           ),
           primary: canUpdate && !isLastOwner(a) ? { label: "Change role", onClick: () => api.edit(a) } : undefined,
-          menu: [...toggleItems, ...deleteItems],
+          menu: [
+            ...(canUpdate ? [{ label: "Edit names", onClick: () => go(`${BASE}/${a.id}/edit?section=names`) }] : []),
+            ...toggleItems,
+            ...deleteItems,
+          ],
         };
       }}
       stats={(a) => [

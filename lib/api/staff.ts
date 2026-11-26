@@ -36,13 +36,30 @@ export interface StaffLookup {
   mobile: string | null;
 }
 
+export interface NewStaffAccountInput {
+  firstname: string;
+  middlename?: string | null;
+  lastname: string;
+  password: string;
+}
+
+export interface StaffProfileUpdateInput {
+  firstname?: string;
+  middlename?: string | null;
+  lastname?: string;
+}
+
 export interface StaffAssignmentInput {
   /** `09…` or `+251…`. */
   mobile: string;
   role_id: string;
   /** Only when the organization has branches. */
   branch_id?: string;
+  /** Create a new Cheche account when `staff-lookup` reports 404 `central_account_not_found`. */
+  new_account?: NewStaffAccountInput;
 }
+
+export type StaffAssignmentWithAccountCreated = StaffAssignment & { account_created?: boolean };
 
 export interface StaffListParams {
   page: number;
@@ -77,9 +94,23 @@ export function lookUpStaff(organizationId: string, mobile: string, signal?: Abo
 }
 
 /** `roleGiven` is true for 201 (a new assignment, or an old one brought back) and false for 200 (they already had it). */
-export async function assignStaff(organizationId: string, input: StaffAssignmentInput): Promise<{ assignment: StaffAssignment; roleGiven: boolean }> {
-  const { data, status } = await apiRequestWithStatus<StaffAssignment>(`${base(organizationId)}/staff-assignments`, { method: "POST", body: input });
-  return { assignment: data, roleGiven: status === 201 };
+export async function assignStaff(
+  organizationId: string,
+  input: StaffAssignmentInput,
+): Promise<{ assignment: StaffAssignmentWithAccountCreated; roleGiven: boolean; accountCreated: boolean }> {
+  const { data, status } = await apiRequestWithStatus<StaffAssignmentWithAccountCreated>(`${base(organizationId)}/staff-assignments`, {
+    method: "POST",
+    body: input,
+  });
+  return { assignment: data, roleGiven: status === 201, accountCreated: Boolean(data.account_created) };
+}
+
+/** Names only: never changes mobile, email, password, or status. `409 central_auth_refused` when refused. */
+export function updateStaffProfile(organizationId: string, assignmentId: string, changes: StaffProfileUpdateInput): Promise<StaffAssignment> {
+  return apiRequest<StaffAssignment>(`${base(organizationId)}/staff-assignments/${assignmentId}/profile`, {
+    method: "PATCH",
+    body: changes,
+  });
 }
 
 export type StaffOverrideAction = "view" | "create" | "update" | "delete" | "import" | "export" | "notify";

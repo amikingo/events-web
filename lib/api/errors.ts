@@ -57,6 +57,8 @@ export function describeApiError(error: unknown, noun = "item"): string {
       return `The event isn't ready to publish. It still needs ${missingList(error.details)}.`;
     case "central_account_not_found":
       return "This number has no Cheche account yet. Ask them to sign up first, then try again.";
+    case "central_auth_refused":
+      return "Cheche accounts didn't accept this change. Try again later.";
     case "last_owner_assignment":
       return "The organization needs at least one active Owner. Give the role to someone else first.";
     case "assignment_scope_conflict":
