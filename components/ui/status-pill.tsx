@@ -37,6 +37,22 @@ export const statusVocabulary = {
     delivered: ["Delivered", "success"],
     returned: ["Returned", "neutral"],
   },
+  /**
+   * A ticket order (events): the API's own words, as it sends them (PENDING_PAYMENT, CONFIRMED, EXPIRED,
+   * REFUND_REQUIRED). Pending: places held while the buyer pays; expired: unpaid in time, places released; refund
+   * needed: paid after its places were released, so someone must follow up.
+   */
+  ticketOrder: {
+    pending_payment: ["Pending payment", "warning"],
+    confirmed: ["Confirmed", "success"],
+    expired: ["Expired", "neutral"],
+    refund_required: ["Refund needed", "danger"],
+  },
+  /** Which payment keys an account uses: test keys take no real money. */
+  paymentKey: {
+    test: ["Test", "warning"],
+    live: ["Live", "success"],
+  },
   inspection: {
     valid: ["Valid", "success"],
     "due-soon": ["Due soon", "warning"],
@@ -76,6 +92,10 @@ export const statusVocabulary = {
   registration: {
     confirmed: ["Confirmed", "success"],
     cancelled: ["Cancelled", "danger"],
+    /** A place held while its order is being paid: no code yet. */
+    held: ["Waiting for payment", "warning"],
+    /** The hold ended unpaid: the place went back. */
+    released: ["Released", "neutral"],
   },
   /** A message (an SMS confirmation) on its way to a guest. */
   message: {

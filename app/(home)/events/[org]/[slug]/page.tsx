@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { DetailSection, EventAgenda, EventDetailsHeader, EventNotices, OrganizerContact, SpeakerList, VenueMap } from "@/components/marketplace/event-details";
+import { DetailSection, EventAgenda, EventHero, EventNotices, OrganizerContact, SpeakerList, VenueMap } from "@/components/marketplace/event-details";
 import { Container, EventGrid } from "@/components/marketplace/section";
-import { RegisterForm } from "@/components/marketplace/public/register-form";
+import { CheckoutForm } from "@/components/marketplace/public/checkout-form";
+import { formatPrice } from "@/lib/price";
 import { Card } from "@/components/ui/card";
 import { MonitorIcon } from "@/components/ui/icons";
 import { formatDateShort, formatMomentFull } from "@/lib/ethiopian-datetime";
@@ -43,13 +44,11 @@ export default async function EventPage({ params }: { params: Params }) {
 
   return (
     <>
-      <Container className="pb-28 pt-6 lg:pb-12">
-        <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-10">
+      <EventHero event={event} venue={venue} city={city} categoryName={category.name} now={now} />
+      <Container className="pb-28 pt-2 lg:pb-12">
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-12">
           <div className="min-w-0">
-            <EventDetailsHeader event={event} organizer={organizer} venue={venue} city={city} categoryName={category.name} now={now} />
-            <div className="mt-6">
-              <EventNotices event={event} now={now} />
-            </div>
+            <EventNotices event={event} now={now} />
 
             {event.description.length > 0 && (
             <DetailSection id="about" title="About this event">
@@ -114,21 +113,27 @@ export default async function EventPage({ params }: { params: Params }) {
             </DetailSection>
           </div>
 
-          <aside id="tickets" aria-label="Registration" className="scroll-mt-24 lg:sticky lg:top-24 lg:self-start">
+          <aside id="tickets" aria-label="Tickets" className="scroll-mt-24 lg:sticky lg:top-24 lg:self-start">
             <Card>
-              <h2 className="m-0 type-h2 text-text">Register</h2>
+              <h2 className="m-0 type-h2 text-text">Tickets</h2>
+              {/* While tickets are on sale the checkout lists them with prices; otherwise show what there will be. */}
+              {!event.registration?.open && (event.registration?.ticketTypes.length ?? 0) > 0 && (
+                <ul className="m-0 mt-3 flex list-none flex-col divide-y divide-border rounded-md border border-border p-0" aria-label="Tickets">
+                  {event.registration!.ticketTypes.map((t) => (
+                    <li key={t.code} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                      <span className="type-body text-text">{t.name}</span>
+                      <span className="type-body font-semibold text-text">{formatPrice(t.price, t.currency)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
               {event.lifecycle === "cancelled" ? (
                 <p className="m-0 mt-3 type-body text-text-soft" role="status">
                   This event was cancelled.
                 </p>
               ) : event.registration?.open ? (
                 <div className="mt-4">
-                  <RegisterForm
-                    organizationSlug={event.registration.organizationSlug}
-                    eventSlug={event.registration.eventSlug}
-                    ticketTypes={event.registration.ticketTypes}
-                    privacyVersion={event.registration.privacyVersion}
-                  />
+                  <CheckoutForm organizationSlug={event.registration.organizationSlug} eventSlug={event.registration.eventSlug} registration={event.registration} />
                 </div>
               ) : (
                 <p className="m-0 mt-3 type-body text-text-soft" role="status">

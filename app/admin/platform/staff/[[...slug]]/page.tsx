@@ -6,7 +6,7 @@ import { Suspense, useState } from "react";
 import { Can, useModuleAccess } from "@/components/ability-provider";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { DestructiveDialog } from "@/components/ui/confirm-dialog";
+import { ConfirmDialog, DestructiveDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { InfoIcon, PlusIcon, UserIcon } from "@/components/ui/icons";
 import { Note } from "@/components/ui/note";
@@ -84,6 +84,8 @@ function PlatformStaffView() {
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  // Switching something back on is harmless, so it gets the ordinary confirm (the workspace's own is the red, delete-style one).
+  const [switchOn, setSwitchOn] = useState<{ title: string; description: string; confirmLabel: string; onConfirm: () => void } | null>(null);
   const [roleFilter, setRoleFilter] = useState(ALL_FILTER);
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const [deleteTarget, setDeleteTarget] = useState<StaffAssignment | null>(null);
@@ -257,7 +259,7 @@ function PlatformStaffView() {
       <RecordWorkspace
         fit
         inlineToasts={false}
-        className={location.mode === "list" ? undefined : "h-[calc(100vh-270px)] min-h-[520px]"}
+        className={location.mode === "list" ? undefined : "h-[calc(100vh-170px)] min-h-[520px]"}
         records={records}
         getId={(a) => a.id}
         noun="platform assignment"
@@ -338,7 +340,7 @@ function PlatformStaffView() {
                     : {
                         label: "Switch on access",
                         onClick: () =>
-                          api.confirm({
+                          setSwitchOn({
                             title: `Switch on ${nameOf(a)}'s platform access?`,
                             description: "They get their platform role back on their next request.",
                             confirmLabel: "Switch on access",
@@ -453,6 +455,19 @@ function PlatformStaffView() {
           remove.mutate(deleteTarget.id);
         }}
       />
+    <ConfirmDialog
+      open={switchOn !== null}
+      onOpenChange={(open) => !open && setSwitchOn(null)}
+      tone="success"
+      title={switchOn?.title ?? ""}
+      description={switchOn?.description}
+      confirmLabel={switchOn?.confirmLabel}
+      onConfirm={() => {
+        const action = switchOn;
+        setSwitchOn(null);
+        action?.onConfirm();
+      }}
+    />
     </>
   );
 }

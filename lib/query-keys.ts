@@ -1,7 +1,9 @@
 import type { BranchListParams } from "@/lib/api/branches";
 import type { ClientListParams } from "@/lib/api/clients";
 import type { EventListParams } from "@/lib/api/events";
+import type { OrderListParams } from "@/lib/api/orders";
 import type { OrganizationListParams } from "@/lib/api/organizations";
+import type { PaymentCaseListParams } from "@/lib/api/payment-cases";
 import type { PlatformStaffListParams } from "@/lib/api/platform";
 import type { StaffListParams } from "@/lib/api/staff";
 import type { PersonListParams } from "@/lib/api/persons";
@@ -65,6 +67,19 @@ export const personQk = {
 };
 
 /** An event's guest list and its places-left summary. */
+export const orderQk = {
+  all: (organizationId: string, eventId: string) => ["orders", organizationId, eventId] as const,
+  list: (organizationId: string, eventId: string, params: OrderListParams) => ["orders", organizationId, eventId, "list", params] as const,
+  detail: (organizationId: string, eventId: string, orderId: string) => ["orders", organizationId, eventId, "detail", orderId] as const,
+};
+
+/** Payment cases (refunds and payment problems), per organization. */
+export const paymentCaseQk = {
+  all: (organizationId: string) => ["payment-cases", organizationId] as const,
+  list: (organizationId: string, params: PaymentCaseListParams) => ["payment-cases", organizationId, "list", params] as const,
+  detail: (organizationId: string, caseId: string) => ["payment-cases", organizationId, "detail", caseId] as const,
+};
+
 export const registrationQk = {
   all: (organizationId: string, eventId: string) => ["registrations", organizationId, eventId] as const,
   list: (organizationId: string, eventId: string, params: RegistrationListParams) => ["registrations", organizationId, eventId, "list", params] as const,

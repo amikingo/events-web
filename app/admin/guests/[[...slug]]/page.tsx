@@ -7,6 +7,7 @@ import { NoOrganization, useOrganizationId } from "@/app/admin/_components/organ
 import { Can, useModuleAccess } from "@/components/ability-provider";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PlusIcon, UserIcon } from "@/components/ui/icons";
 import { Pill } from "@/components/ui/pill";
@@ -102,6 +103,8 @@ function GuestsView({ organizationId }: { organizationId: string }) {
   const location = parseRecordPath(BASE, pathname);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  // Switching something back on is harmless, so it gets the ordinary confirm (the workspace's own is the red, delete-style one).
+  const [switchOn, setSwitchOn] = useState<{ title: string; description: string; confirmLabel: string; onConfirm: () => void } | null>(null);
   const [search, setSearch] = useState("");
   // The API searches names, email and phone (`09…` also finds `+251…`). Ask once the person stops typing.
   const q = useDebouncedValue(search.trim(), 300);
@@ -198,11 +201,12 @@ function GuestsView({ organizationId }: { organizationId: string }) {
   }
 
   return (
+    <>
     <RecordWorkspace
       fit
       inlineToasts={false}
       // A short list sizes to its rows; the record page, panel and forms keep a tall stage.
-      className={location.mode === "list" ? undefined : "h-[calc(100vh-270px)] min-h-[520px]"}
+      className={location.mode === "list" ? undefined : "h-[calc(100vh-170px)] min-h-[520px]"}
       records={persons}
       getId={(p) => p.id}
       noun="guest"
@@ -276,7 +280,7 @@ function GuestsView({ organizationId }: { organizationId: string }) {
                 : {
                     label: "Switch on guest",
                     onClick: () =>
-                      api.confirm({
+                      setSwitchOn({
                         title: `Switch on ${fullName(p)}?`,
                         description: "They can be registered for events again.",
                         confirmLabel: "Switch on guest",
@@ -352,6 +356,20 @@ function GuestsView({ organizationId }: { organizationId: string }) {
         },
       }}
     />
+    <ConfirmDialog
+      open={switchOn !== null}
+      onOpenChange={(open) => !open && setSwitchOn(null)}
+      tone="success"
+      title={switchOn?.title ?? ""}
+      description={switchOn?.description}
+      confirmLabel={switchOn?.confirmLabel}
+      onConfirm={() => {
+        const action = switchOn;
+        setSwitchOn(null);
+        action?.onConfirm();
+      }}
+    />
+    </>
   );
 }
 

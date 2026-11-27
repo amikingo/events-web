@@ -27,6 +27,7 @@ import { MODULE_CODES } from "@/lib/constants/modules";
 import { formatDate } from "@/lib/format";
 import { useOrganization } from "@/lib/organization-context";
 import { branchQk, organizationQk, staffQk } from "@/lib/query-keys";
+import { ChechePayCard } from "./cheche-pay-card";
 import { OrganizationForm } from "./organization-form";
 
 const BASE = "/admin/organizations";
@@ -287,7 +288,7 @@ function OrganizationsView() {
         fit
         inlineToasts={false}
         // A short list sizes to its rows; the record page, panel and forms keep a tall stage.
-        className={location.mode === "list" ? undefined : "h-[calc(100vh-270px)] min-h-[520px]"}
+        className={location.mode === "list" ? undefined : "h-[calc(100vh-170px)] min-h-[520px]"}
         records={organizations}
         getId={(o) => o.id}
         noun="organization"
@@ -379,6 +380,8 @@ function OrganizationsView() {
             { id: "overview", label: "Overview" },
             { id: "branches", label: "Branches" },
             ...(canViewStaff ? [{ id: "staff", label: "Staff Assignments" }] : []),
+            // Where the organizer's ticket money goes: the API answers platform roles only.
+            ...(isPlatform ? [{ id: "cheche-pay", label: "Cheche Pay" }] : []),
           ],
           content: (o, tab) =>
             tab === "branches" ? (
@@ -387,6 +390,8 @@ function OrganizationsView() {
               ) : (
                 <EmptyState size="sm" icon={<BuildingIcon />} title="Branches are off" description="This organization runs everything as one. Adding a branch turns them on." />
               )
+            ) : tab === "cheche-pay" ? (
+              <ChechePayCard organizationId={o.id} />
             ) : tab === "staff" ? (
               <OrganizationStaff organizationId={o.id} />
             ) : (

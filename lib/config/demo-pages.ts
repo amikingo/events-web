@@ -6,4 +6,4 @@
 export const DEMO_PAGES_ENABLED = process.env.NODE_ENV !== "production";
 
 /** Pages every signed-in person may open, whatever their role. */
-export const ALWAYS_ALLOWED_PATHS = ["/admin", "/admin/forbidden"];
+export const ALWAYS_ALLOWED_PATHS = ["/admin", "/admin/forbidden", "/admin/settings"];

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "@/app/auth/session";
+import { TicketQr } from "@/components/checkout/ticket-qr";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -73,14 +74,18 @@ function TicketCard({ ticket, past }: { ticket: MyTicket; past: boolean }) {
             <span className="type-body-sm text-text-faint">Registration cancelled</span>
           </div>
         ) : (
-          <div className="flex flex-none flex-col items-start rounded-md border border-border bg-surface-2 px-4 py-3 sm:items-end sm:text-right">
-            <span className="type-label text-text-faint">Entry code</span>
-            <span
-              className="mt-0.5 font-mono text-lg font-semibold tracking-[0.18em] text-text sm:text-xl"
-              aria-label={`Entry code ${ticket.code.split("").join(" ")}`}
-            >
-              {ticket.code}
-            </span>
+          <div className="flex flex-none items-center gap-4 sm:flex-row-reverse">
+            {/* The QR holds the code only (Phase 8): show it at the door, or save or share it for a friend. */}
+            {!past && <TicketQr code={ticket.code} label={`QR code for ticket ${ticket.code}`} size={96} downloadName={ticket.event.slug} />}
+            <div className="flex flex-col items-start rounded-md border border-border bg-surface-2 px-4 py-3 sm:items-end sm:text-right">
+              <span className="type-label text-text-faint">Entry code</span>
+              <span
+                className="mt-0.5 font-mono text-lg font-semibold tracking-[0.18em] text-text sm:text-xl"
+                aria-label={`Entry code ${ticket.code.split("").join(" ")}`}
+              >
+                {ticket.code}
+              </span>
+            </div>
           </div>
         )}
       </div>

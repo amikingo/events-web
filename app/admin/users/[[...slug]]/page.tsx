@@ -129,7 +129,7 @@ function UsersView() {
     <RecordWorkspace
       fit
       inlineToasts={false}
-      className="h-[calc(100vh-270px)] min-h-[520px]"
+      className="h-[calc(100vh-170px)] min-h-[520px]"
       records={members}
       getId={(m) => m.id}
       noun="user"

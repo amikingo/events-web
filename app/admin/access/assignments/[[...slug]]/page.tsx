@@ -7,7 +7,7 @@ import { NoOrganization, useOrganizationId } from "@/app/admin/_components/organ
 import { Can, useModuleAccess } from "@/components/ability-provider";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { DestructiveDialog } from "@/components/ui/confirm-dialog";
+import { ConfirmDialog, DestructiveDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PlusIcon, UserIcon } from "@/components/ui/icons";
 import { Pill } from "@/components/ui/pill";
@@ -78,6 +78,8 @@ function StaffView({ organizationId }: { organizationId: string }) {
   const location = parseRecordPath(BASE, pathname);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  // Switching something back on is harmless, so it gets the ordinary confirm (the workspace's own is the red, delete-style one).
+  const [switchOn, setSwitchOn] = useState<{ title: string; description: string; confirmLabel: string; onConfirm: () => void } | null>(null);
   const [roleFilter, setRoleFilter] = useState(ALL_FILTER);
   const [branchFilter, setBranchFilter] = useState(ALL_FILTER);
   const [deleteTarget, setDeleteTarget] = useState<StaffAssignment | null>(null);
@@ -292,7 +294,7 @@ function StaffView({ organizationId }: { organizationId: string }) {
     <RecordWorkspace
       fit
       inlineToasts={false}
-      className={location.mode === "list" ? undefined : "h-[calc(100vh-270px)] min-h-[520px]"}
+      className={location.mode === "list" ? undefined : "h-[calc(100vh-170px)] min-h-[520px]"}
       records={workspaceRecords}
       getId={(a) => a.id}
       noun="person"
@@ -368,7 +370,7 @@ function StaffView({ organizationId }: { organizationId: string }) {
                   : {
                       label: "Switch on access",
                       onClick: () =>
-                        api.confirm({
+                        setSwitchOn({
                           title: `Switch on ${nameOf(a)}'s access?`,
                           description: "They get their role back on their next request.",
                           confirmLabel: "Switch on access",
@@ -473,6 +475,19 @@ function StaffView({ organizationId }: { organizationId: string }) {
         if (!deleteTarget) return;
         setDeleteError(null);
         remove.mutate(deleteTarget.id);
+      }}
+    />
+    <ConfirmDialog
+      open={switchOn !== null}
+      onOpenChange={(open) => !open && setSwitchOn(null)}
+      tone="success"
+      title={switchOn?.title ?? ""}
+      description={switchOn?.description}
+      confirmLabel={switchOn?.confirmLabel}
+      onConfirm={() => {
+        const action = switchOn;
+        setSwitchOn(null);
+        action?.onConfirm();
       }}
     />
     </>

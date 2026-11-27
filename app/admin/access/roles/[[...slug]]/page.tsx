@@ -382,7 +382,7 @@ function RolesView({ organizationId }: { organizationId: string }) {
       <RecordWorkspace
         fit
         inlineToasts={false}
-        className={location.mode === "list" ? undefined : "h-[calc(100vh-270px)] min-h-[520px]"}
+        className={location.mode === "list" ? undefined : "h-[calc(100vh-170px)] min-h-[520px]"}
         records={roles}
         getId={(r) => r.id}
         noun="role"

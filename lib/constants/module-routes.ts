@@ -9,6 +9,12 @@ export const MODULE_ROUTES: Record<string, string> = {
   "/events": "/admin/events",
   // Menu-only module (create it on Access › Modules: code VENUES, address /venues); guarded by EVENTS.
   "/venues": "/admin/venues",
+  // Menu-only module (create it on Access › Modules: code ORDERS, address /orders); guarded by REGISTRATIONS.
+  "/orders": "/admin/orders",
+  // Menu-only module (create it on Access › Modules: code DOOR, address /door); guarded by REGISTRATIONS.
+  "/door": "/admin/door",
+  // Payment cases (Phase 8): refunds due, double charges, wrong amounts. Seeded by the API with route /payments.
+  "/payments": "/admin/payments",
   "/clients": "/admin/clients",
   "/guests": "/admin/guests",
   "/organizations": "/admin/organizations",

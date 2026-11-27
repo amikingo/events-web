@@ -220,18 +220,8 @@ export const activeDomain: DomainProfile = DOMAIN_PROFILES.enterprise;
  */
 export const TOP_LEVEL_NAV_ITEMS: NavItemConfig[] = [
   { id: "dashboard", href: "/admin/dashboard", label: "Today", iconName: "dashboard", section: "Primary" },
-  {
-    id: "payments",
-    href: "/admin/payments",
-    label: "Payments",
-    iconName: "payments",
-    section: "Primary",
-    children: [
-      { id: "payments-list", href: "/admin/payments", label: "Payments", iconName: "payments" },
-      { id: "orders", href: "/admin/orders", label: "Orders", iconName: "orders" },
-      { id: "payouts", href: "/admin/payouts", label: "Payouts", iconName: "payouts" },
-    ],
-  },
+  // The real Payments page (payment cases) comes from `/me` as the PAYMENTS module; only the Payouts demo is left here.
+  { id: "payments", href: "/admin/payouts", label: "Payouts", iconName: "payouts", section: "Primary" },
   { id: "users", href: "/admin/users", label: "Users", iconName: "users", section: "Primary" },
   { id: "analytics", href: "/admin/analytics", label: "Analytics", iconName: "analytics", section: "Primary" },
   { id: "inbox", href: "/admin/inbox", label: "Inbox", iconName: "inbox", section: "Primary", badgeCount: 4 },
@@ -268,15 +258,13 @@ export function getDomainLabel(moduleId: string, defaultLabel: string, domainId:
 export const COMMAND_PALETTE_ITEMS: SearchCommandItem[] = [
   // Primary
   { id: "/admin/dashboard", moduleId: "dashboard", title: "Today — Overview & Needs Attention", group: "Navigation" },
-  { id: "/admin/payments", moduleId: "payments", title: "Payments & Settlement Ledger", group: "Navigation" },
-  { id: "/admin/payments/new", moduleId: "payments", title: "Record New Payment Transaction", group: "Actions" },
+  { id: "/admin/payments", moduleId: "payments", title: "Payments: refunds and payment problems", group: "Navigation" },
   // Platform & Settings
   { id: "/admin/users", moduleId: "users", title: "Users", group: "Navigation" },
   { id: "/admin/users/new", moduleId: "users", title: "Add a user", group: "Actions" },
   { id: "/admin/analytics", moduleId: "analytics", title: "Analytics", group: "Navigation" },
   { id: "/admin/inbox", moduleId: "inbox", title: "Inbox", group: "Navigation" },
   { id: "/admin/catalog", moduleId: "catalog", title: "Catalog", group: "Navigation" },
-  { id: "/admin/orders", moduleId: "orders", title: "Orders", group: "Navigation" },
   { id: "/admin/payouts", moduleId: "payouts", title: "Payouts", group: "Navigation" },
   { id: "/admin/notifications", moduleId: "notifications", title: "Notification Center & Alerts", group: "Navigation" },
   { id: "/admin/settings", moduleId: "settings", title: "Platform Settings & Security", group: "Navigation" },
@@ -284,6 +272,23 @@ export const COMMAND_PALETTE_ITEMS: SearchCommandItem[] = [
 ];
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** What a record id is, by the section it sits in: `/events/{id}` is an Event, `/orders/{id}` an Order. */
+const RECORD_NOUNS: Record<string, string> = {
+  events: "Event",
+  orders: "Order",
+  payments: "Case",
+  clients: "Client",
+  venues: "Venue",
+  guests: "Guest",
+  branches: "Branch",
+  organizations: "Organization",
+  roles: "Role",
+  assignments: "Staff member",
+  staff: "Staff member",
+  modules: "Module",
+  "role-templates": "Template",
+};
 
 /** Breadcrumb resolver. Dashboard pages live under /admin, so the first segment is the section, not a crumb. */
 export function getBreadcrumbTrail(pathname: string): { label: string; href?: string }[] {
@@ -310,9 +315,16 @@ export function getBreadcrumbTrail(pathname: string): { label: string; href?: st
       label = "New";
     } else if (part === "edit") {
       label = "Edit";
+    } else if (part === "issue") {
+      label = "Issue tickets";
+    } else if (part === "door") {
+      label = "Door";
     } else if (UUID.test(part)) {
-      // A record id from the API: the page itself names the record, so the crumb just says where you are.
-      label = "Details";
+      // A record id from the API: the page itself names the record, so the crumb says what kind of record it is.
+      // On the Orders page the path is /orders/{eventId}/{orderId}: the first id is the event, the second the order.
+      const previous = parts[i - 1] ?? "";
+      const ordersPage = parts[0] === "orders" && i === 1;
+      label = ordersPage ? "Event" : (RECORD_NOUNS[previous] ?? (UUID.test(previous) && parts[0] === "orders" ? "Order" : "Details"));
     } else if (part.startsWith("USR-") || part.startsWith("ORG-") || part.startsWith("TX-") || part.startsWith("TSK-")) {
       label = part;
     }

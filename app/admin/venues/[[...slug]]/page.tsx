@@ -7,6 +7,7 @@ import { NoOrganization, useOrganizationId } from "@/app/admin/_components/organ
 import { Can, useModuleAccess } from "@/components/ability-provider";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { BuildingIcon, PlusIcon } from "@/components/ui/icons";
 import { RecordHeading, RecordKv, RecordRailCard } from "@/components/ui/record-view";
@@ -76,6 +77,8 @@ function VenuesView({ organizationId }: { organizationId: string }) {
   const location = parseRecordPath(BASE, pathname);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  // Switching something back on is harmless, so it gets the ordinary confirm (the workspace's own is the red, delete-style one).
+  const [switchOn, setSwitchOn] = useState<{ title: string; description: string; confirmLabel: string; onConfirm: () => void } | null>(null);
   const params = { page, pageSize };
 
   const list = useQuery({
@@ -169,11 +172,12 @@ function VenuesView({ organizationId }: { organizationId: string }) {
   }
 
   return (
+    <>
     <RecordWorkspace
       fit
       inlineToasts={false}
       // A short list sizes to its rows; the record page, panel and forms keep a tall stage.
-      className={location.mode === "list" ? undefined : "h-[calc(100vh-270px)] min-h-[520px]"}
+      className={location.mode === "list" ? undefined : "h-[calc(100vh-170px)] min-h-[520px]"}
       records={records}
       getId={(v) => v.id}
       noun="venue"
@@ -239,7 +243,7 @@ function VenuesView({ organizationId }: { organizationId: string }) {
                 : {
                     label: "Switch on venue",
                     onClick: () =>
-                      api.confirm({
+                      setSwitchOn({
                         title: `Switch on ${v.name}?`,
                         description: "It can be picked for events again.",
                         confirmLabel: "Switch on venue",
@@ -306,6 +310,20 @@ function VenuesView({ organizationId }: { organizationId: string }) {
         },
       }}
     />
+    <ConfirmDialog
+      open={switchOn !== null}
+      onOpenChange={(open) => !open && setSwitchOn(null)}
+      tone="success"
+      title={switchOn?.title ?? ""}
+      description={switchOn?.description}
+      confirmLabel={switchOn?.confirmLabel}
+      onConfirm={() => {
+        const action = switchOn;
+        setSwitchOn(null);
+        action?.onConfirm();
+      }}
+    />
+    </>
   );
 }
 

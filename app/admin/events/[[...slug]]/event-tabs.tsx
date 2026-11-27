@@ -11,7 +11,9 @@ import { Field } from "@/components/ui/field";
 import { FileUpload } from "@/components/ui/file-upload";
 import type { UploadItem } from "@/components/ui/file-upload";
 import { ImageIcon } from "@/components/ui/icons";
-import { Input } from "@/components/ui/input";
+import { Input, InputAddon, InputGroup } from "@/components/ui/input";
+import { Pill } from "@/components/ui/pill";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import { RecordHeading, RecordRows } from "@/components/ui/record-view";
 import { Skeleton, SkeletonStack } from "@/components/ui/skeleton";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -20,30 +22,35 @@ import { toast } from "@/components/ui/toaster";
 import { ApiError, assetUrl } from "@/lib/api-client";
 import { describeApiError } from "@/lib/api/errors";
 import { createTicketType, listTicketTypes, removeEventCover, setTicketTypeActive, updateTicketType, uploadEventCover } from "@/lib/api/events";
-import type { StaffEvent, TicketType } from "@/lib/api/events";
+import type { StaffEvent, TicketAudience, TicketType, TicketTypeInput } from "@/lib/api/events";
 import { formatBytes, formatNumber } from "@/lib/format";
-import { eventQk, registrationQk } from "@/lib/query-keys";
+import { PRICE_PATTERN, formatPrice, isFreePrice } from "@/lib/price";
+import { eventQk, organizationQk, registrationQk } from "@/lib/query-keys";
+import { getOrganization } from "@/lib/api/organizations";
 
 /** CLOSED and CANCELLED events can't change at all, ticket types and cover included. */
 export const isEditable = (event: StaffEvent) => event.status === "DRAFT" || event.status === "PUBLISHED";
 
 const CODE = /^[A-Za-z0-9_]+$/;
 
-/** The event's ticket types: list, add, rename, switch on and off. All tickets are free for now. */
+/** The event's ticket types: list, add, edit (name, code, limit, price, who can get it), switch on and off. */
 export function TicketTypesTab({ event, canUpdate }: { event: StaffEvent; canUpdate: boolean }) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<TicketType | "new" | null>(null);
-  const [form, setForm] = useState({ code: "", name: "", capacity: "" });
-  const [errors, setErrors] = useState<{ code?: string; name?: string; capacity?: string }>({});
+  const [form, setForm] = useState({ code: "", name: "", capacity: "", price: "", audience: "PUBLIC" as TicketAudience });
+  const [errors, setErrors] = useState<{ code?: string; name?: string; capacity?: string; price?: string }>({});
   const [failure, setFailure] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<TicketType | null>(null);
   const editable = canUpdate && isEditable(event);
   const orgId = event.organization_id;
+  const { data: organization } = useQuery({ queryKey: organizationQk.detail(orgId), queryFn: ({ signal }) => getOrganization(orgId, signal) });
 
   const query = useQuery({
     queryKey: eventQk.tickets(orgId, event.id),
     queryFn: ({ signal }) => listTicketTypes(orgId, event.id, signal),
   });
+  // Every ticket type carries the organizer's currency; a new event's first type uses the organization's default.
+  const currency = query.data?.[0]?.currency ?? organization?.default_currency ?? "ETB";
   const state = { status: query.isPending ? "loading" : query.isError ? "error" : "ready", items: query.data ?? [], error: query.error } as const;
   /** After a change: the ticket list, and the events (publishing depends on having an active ticket type). */
   // A ticket type's limit or status changes the guest summary too.
@@ -53,7 +60,7 @@ export function TicketTypesTab({ event, canUpdate }: { event: StaffEvent; canUpd
   };
 
   const save = useMutation({
-    mutationFn: ({ target, input }: { target: TicketType | "new"; input: { code: string; name: string; capacity: number | null } }) =>
+    mutationFn: ({ target, input }: { target: TicketType | "new"; input: TicketTypeInput }) =>
       target === "new" ? createTicketType(orgId, event.id, input) : updateTicketType(orgId, event.id, target.id, input),
     onSuccess: (_ticket, { target }) => {
       refresh();
@@ -80,7 +87,18 @@ export function TicketTypesTab({ event, canUpdate }: { event: StaffEvent; canUpd
 
   function open(target: TicketType | "new") {
     setEditing(target);
-    setForm(target === "new" ? { code: "", name: "", capacity: "" } : { code: target.code, name: target.name, capacity: target.capacity ? String(target.capacity) : "" });
+    setForm(
+      target === "new"
+        ? { code: "", name: "", capacity: "", price: "", audience: "PUBLIC" }
+        : {
+            code: target.code,
+            name: target.name,
+            capacity: target.capacity ? String(target.capacity) : "",
+            // "0.00" shows as an empty box (free); "500.00" as "500".
+            price: isFreePrice(target.price) ? "" : target.price.replace(/\.00$/, ""),
+            audience: target.audience,
+          },
+    );
     setErrors({});
     setFailure(null);
   }
@@ -91,11 +109,22 @@ export function TicketTypesTab({ event, canUpdate }: { event: StaffEvent; canUpd
       code: !form.code.trim() ? "Enter a short code, like VIP." : CODE.test(form.code.trim()) ? undefined : "Use letters, numbers and underscores only.",
       name: form.name.trim() ? undefined : "Enter the ticket's name.",
       capacity: !form.capacity.trim() || /^[1-9]\d{0,6}$/.test(form.capacity.trim()) ? undefined : "Enter a whole number above 0, or leave it empty.",
+      price: !form.price.trim() || PRICE_PATTERN.test(form.price.trim()) ? undefined : "Enter an amount like 500 or 500.50, or leave it empty for free.",
     };
     setErrors(next);
-    if (next.code || next.name || next.capacity || !editing) return;
+    if (next.code || next.name || next.capacity || next.price || !editing) return;
     setFailure(null);
-    save.mutate({ target: editing, input: { code: form.code.trim(), name: form.name.trim(), capacity: form.capacity.trim() ? Number(form.capacity.trim()) : null } });
+    save.mutate({
+      target: editing,
+      input: {
+        code: form.code.trim(),
+        name: form.name.trim(),
+        capacity: form.capacity.trim() ? Number(form.capacity.trim()) : null,
+        // Sent as the string typed: the API stores it exactly ("500" → "500.00"). Empty means free.
+        price: form.price.trim() || "0",
+        audience: form.audience,
+      },
+    });
   }
 
   if (state.status === "loading") {
@@ -122,11 +151,12 @@ export function TicketTypesTab({ event, canUpdate }: { event: StaffEvent; canUpd
               title: t.name,
               meta: (
                 <>
-                  <code>{t.code}</code> · {t.capacity ? `Up to ${formatNumber(t.capacity)}` : "No separate limit"} · Free
+                  <code>{t.code}</code> · {t.capacity ? `Up to ${formatNumber(t.capacity)}` : "No separate limit"} · {formatPrice(t.price, t.currency)}
                 </>
               ),
               trailing: (
                 <span className="flex items-center gap-2">
+                  {t.audience === "STAFF_ONLY" && <Pill tone="neutral">Staff only</Pill>}
                   <StatusPill kind="account" status={t.is_active ? "active" : "inactive"} />
                   {editable && (
                     <>
@@ -153,7 +183,7 @@ export function TicketTypesTab({ event, canUpdate }: { event: StaffEvent; canUpd
 
       {editing && (
         <Card>
-          <CardHeader title={editing === "new" ? "New ticket type" : `Edit ${editing.name}`} subtitle="Tickets are free for now. Paid tickets come later." />
+          <CardHeader title={editing === "new" ? "New ticket type" : `Edit ${editing.name}`} subtitle="Leave the price empty for a free ticket." />
           <form onSubmit={submit} noValidate className="flex flex-col gap-4">
             {failure && <ErrorBanner>{failure}</ErrorBanner>}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -164,8 +194,33 @@ export function TicketTypesTab({ event, canUpdate }: { event: StaffEvent; canUpd
                 <Input id="tt-code" value={form.code} error={!!errors.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} placeholder="VIP" autoComplete="off" />
               </Field>
             </div>
-            <Field label="Limit" htmlFor="tt-capacity" error={errors.capacity} hint="Optional. Empty means it shares the event's capacity.">
-              <Input id="tt-capacity" inputMode="numeric" value={form.capacity} error={!!errors.capacity} onChange={(e) => setForm((f) => ({ ...f, capacity: e.target.value }))} placeholder="100" autoComplete="off" />
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Field label="Price" htmlFor="tt-price" error={errors.price} hint="Empty or 0 means free.">
+                <InputGroup
+                  id="tt-price"
+                  inputMode="decimal"
+                  value={form.price}
+                  error={!!errors.price}
+                  onChange={(e) => setForm((f) => ({ ...f, price: e.target.value.replace(/[^\d.]/g, "") }))}
+                  suffix={<InputAddon variant="suffix">{currency}</InputAddon>}
+                  placeholder="Free"
+                  autoComplete="off"
+                />
+              </Field>
+              <Field label="Limit" htmlFor="tt-capacity" error={errors.capacity} hint="Optional. Empty means it shares the event's capacity.">
+                <Input id="tt-capacity" inputMode="numeric" value={form.capacity} error={!!errors.capacity} onChange={(e) => setForm((f) => ({ ...f, capacity: e.target.value }))} placeholder="100" autoComplete="off" />
+              </Field>
+            </div>
+            <Field label="Who can get it" hint={form.audience === "STAFF_ONLY" ? "Only staff can issue it. It never shows on the public page." : "Shown on the public event page."}>
+              <SegmentedControl
+                aria-label="Who can get it"
+                value={form.audience}
+                onValueChange={(v) => setForm((f) => ({ ...f, audience: v as TicketAudience }))}
+                options={[
+                  { value: "PUBLIC", label: "Anyone with the link" },
+                  { value: "STAFF_ONLY", label: "Staff only" },
+                ]}
+              />
             </Field>
             <div className="flex items-center gap-2">
               <Button type="submit" loading={save.isPending} loadingLabel="Saving">

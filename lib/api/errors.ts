@@ -80,6 +80,29 @@ export function describeApiError(error: unknown, noun = "item"): string {
       return "This person already has this role for the whole organization or for a branch. Use one or the other.";
     case "registration_closed":
       return registrationClosedMessage(error.details);
+    case "payment_required":
+      return "This ticket type has a price. It can't be issued here yet.";
+    case "paid_sales_unavailable":
+      return "Paid tickets aren't available for this event yet.";
+    case "payment_provider_unavailable":
+      return "Payment is not available right now. Try again in a moment.";
+    case "invalid_order_state":
+      return "This order isn't waiting for payment any more.";
+    case "ticket_not_issued":
+      return "This ticket is waiting for payment.";
+    case "ticket_already_used":
+      return "This ticket was already used at the door.";
+    case "payment_case_already_resolved":
+      return "This case was already closed with a different outcome.";
+    case "ticket_not_admissible": {
+      const status = (error.details as { status?: string } | undefined)?.status;
+      const why = status === "HELD" ? "waiting for payment" : status === "RELEASED" ? "never paid" : status === "CANCELLED" ? "cancelled or returned" : null;
+      return why ? `This ticket can't be used: ${why}.` : "This ticket can't be used to get in.";
+    }
+    case "outside_admission_window": {
+      const endsAt = (error.details as { ends_at?: string | null } | undefined)?.ends_at;
+      return endsAt && Date.parse(endsAt) <= Date.now() ? "The event has ended." : "Doors aren't open yet.";
+    }
     case "capacity_reached":
       return (error.details as { scope?: string } | undefined)?.scope === "TICKET_TYPE" ? "No places left for this ticket type." : "This event is full.";
     case "already_registered":
@@ -97,9 +120,12 @@ export function describeApiError(error: unknown, noun = "item"): string {
     case "idempotency_key_reused":
       return "That submission was already used for a different form. Try again.";
     case "capacity_below_registrations": {
-      const confirmed = (error.details as { confirmed?: number } | undefined)?.confirmed;
-      return confirmed ? `${confirmed} guests are already confirmed. Cancel some before lowering the limit.` : "Guests are already confirmed above that limit. Cancel some first.";
+      const d = error.details as { minimum?: number; confirmed?: number } | undefined;
+      const minimum = d?.minimum ?? d?.confirmed;
+      return minimum ? `At least ${minimum} places are taken or held.` : "More places are taken or held than that.";
     }
+    case "event_has_admissions":
+      return "The schedule can't change after the first guest is admitted.";
     case "payload_too_large":
       return "The image must be 5 MB or smaller.";
     case "unsupported_file_type":
@@ -122,8 +148,15 @@ export function describeApiError(error: unknown, noun = "item"): string {
       return "That role isn't available any more. Pick another one.";
     case "not_found":
       return `This ${noun} no longer exists. Refresh the page.`;
-    case "validation_error":
+    case "validation_error": {
+      // Phase 9 issue codes with their own words; each also belongs on its field.
+      const issues = (error.details as { issues?: { code?: string }[] } | undefined)?.issues ?? [];
+      const codes = new Set(issues.map((i) => i.code));
+      if (codes.has("refund_decision_required")) return "Choose whether used tickets are refunded.";
+      if (codes.has("doors_open_at_reconfirm")) return "Confirm the door time.";
+      if (codes.has("schedule_pair_required")) return "Change the start and end together.";
       return "Some details aren't valid. Check the fields and try again.";
+    }
     case "role_inactive":
       return noun === "person"
         ? "That role is switched off. Choose an active role."
@@ -176,6 +209,8 @@ function registrationClosedMessage(details: unknown): string {
       return "This event has ended.";
     case "NOT_OPEN_YET":
       return "Registration hasn't opened yet.";
+    case "NO_PUBLIC_TICKETS":
+      return "Registration isn't open to the public for this event.";
     default:
       return "Registration has closed.";
   }

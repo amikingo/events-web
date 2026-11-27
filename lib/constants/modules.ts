@@ -16,6 +16,7 @@ export const MODULE_CODES = {
   EVENTS: "EVENTS", // backend MODULE_CODES.EVENTS (events, ticket types, venues)
   CUSTOMERS: "CUSTOMERS", // backend MODULE_CODES.CUSTOMERS (customer accounts, shown as "Clients")
   REGISTRATIONS: "REGISTRATIONS", // backend MODULE_CODES.REGISTRATIONS (guest profiles and registrations, shown as "Guests")
+  PAYMENTS: "PAYMENTS", // backend MODULE_CODES.PAYMENTS (payment cases: refunds due, double charges, wrong amounts)
 } as const;
 
 export type ModuleCode = (typeof MODULE_CODES)[keyof typeof MODULE_CODES];
@@ -40,6 +41,11 @@ export const ROUTE_MODULE_MAP: Record<string, ModuleCode> = {
   "/admin/venues": MODULE_CODES.EVENTS,
   "/admin/clients": MODULE_CODES.CUSTOMERS,
   "/admin/guests": MODULE_CODES.REGISTRATIONS,
+  // Orders live under each event on the API; the Orders page shows them per event, for whoever can see guests.
+  "/admin/orders": MODULE_CODES.REGISTRATIONS,
+  // The door (check-in) for any published event; letting a guest in needs Guests › update, checked on the page.
+  "/admin/door": MODULE_CODES.REGISTRATIONS,
+  "/admin/payments": MODULE_CODES.PAYMENTS,
   "/admin/organizations": MODULE_CODES.ORGANIZATIONS,
   "/admin/branches": MODULE_CODES.BRANCHES,
   "/admin/access/roles": MODULE_CODES.ROLES,

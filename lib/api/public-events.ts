@@ -7,6 +7,7 @@
  *
  * Both slugs identify an event: two organizers may use the same event slug. Rate limited per IP (`429 rate_limited`).
  */
+import type { HolderFields, RegistrationMode } from "@/lib/api/events";
 import { apiPage, apiRequest, apiRequestWithStatus, clampPageSize } from "@/lib/api-client";
 import type { Paginated } from "@/lib/api-client";
 import type { EventDisplayStatus } from "@/lib/api/events";
@@ -31,10 +32,25 @@ export interface PublicEventDetail extends PublicEventCard {
   description: string | null;
   registration_opens_at: string | null;
   registration_closes_at: string | null;
-  /** Active ticket types only. `code` is what the sign-up form sends. */
-  ticket_types: { code: string; name: string }[];
+  /** Active PUBLIC ticket types only, in display order. `code` is what the sign-up form sends; `price` is a decimal string. */
+  ticket_types: PublicTicketType[];
+  /** Phase 7: how guests register, which details a DETAILED event asks for, and the per-mobile ticket limit. */
+  registration_mode: RegistrationMode;
+  holder_fields: HolderFields;
+  purchase_limit_per_mobile: number | null;
+  /** Phase 9: when the doors open; null = at the start time. */
+  doors_open_at: string | null;
   /** Show this notice on the form and send its `version` back with the registration. */
   privacy_notice: { version: string };
+}
+
+export interface PublicTicketType {
+  code: string;
+  name: string;
+  /** `"0.00"` is free. Shown only; never computed with. */
+  price: string;
+  currency: string;
+  is_free: boolean;
 }
 
 export interface PublicRegistrationInput {

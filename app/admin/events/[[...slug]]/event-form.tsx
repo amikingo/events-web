@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarClock, Globe, ImagePlus, Link2, MapPin, UserRound, Users } from "lucide-react";
+import { CalendarClock, Globe, ImagePlus, Link2, ListChecks, MapPin, Ticket, UserRound, Users, Zap } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { EventCover } from "@/components/marketplace/event-cover";
@@ -15,11 +15,13 @@ import { Input, InputAddon, InputGroup } from "@/components/ui/input";
 import { Pill } from "@/components/ui/pill";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Select } from "@/components/ui/select";
+import { SelectCard } from "@/components/ui/select-card";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { assetUrl } from "@/lib/api-client";
 import type { Client } from "@/lib/api/clients";
-import type { EventInput, EventVisibility, StaffEvent } from "@/lib/api/events";
+import { DEFAULT_HOLDER_FIELDS } from "@/lib/api/events";
+import type { EventInput, EventVisibility, HolderFieldSetting, HolderFields, RegistrationMode, StaffEvent } from "@/lib/api/events";
 import type { Venue } from "@/lib/api/venues";
 import { formatInZone, isoToZonedLocal, zonedLocalToIso } from "@/lib/timezone";
 
@@ -37,7 +39,26 @@ interface Values {
   visibility: EventVisibility;
   venueId: string;
   clientId: string;
+  registrationMode: RegistrationMode;
+  /** One value per guest detail, so "Save changes" only turns on when a setting really changed. */
+  holderName: HolderFieldSetting;
+  holderMobile: HolderFieldSetting;
+  holderEmail: HolderFieldSetting;
+  holderAffiliation: HolderFieldSetting;
+  holderCountry: HolderFieldSetting;
+  purchaseLimit: string;
+  /** Phase 9: when the doors open; empty = at the start. */
+  doorsAt: string;
 }
+
+/** The guest details a Detailed event can ask for, in the order the form shows them. */
+const HOLDER_ROWS = [
+  { key: "holderName", field: "name", label: "Name" },
+  { key: "holderMobile", field: "mobile", label: "Mobile" },
+  { key: "holderEmail", field: "email", label: "Email" },
+  { key: "holderAffiliation", field: "affiliation", label: "Organization or affiliation" },
+  { key: "holderCountry", field: "country", label: "Country" },
+] as const satisfies readonly { key: keyof Values; field: keyof HolderFields; label: string }[];
 
 type Errors = Partial<Record<keyof Values | "cover", string>>;
 
@@ -65,6 +86,14 @@ function startValues(event: StaffEvent | undefined, timeZone: string): Values {
     visibility: event?.visibility ?? "UNLISTED",
     venueId: event?.venue_id ?? NONE,
     clientId: event?.customer_account_id ?? NONE,
+    registrationMode: event?.registration_mode ?? "DETAILED",
+    holderName: (event?.holder_fields ?? DEFAULT_HOLDER_FIELDS).name,
+    holderMobile: (event?.holder_fields ?? DEFAULT_HOLDER_FIELDS).mobile,
+    holderEmail: (event?.holder_fields ?? DEFAULT_HOLDER_FIELDS).email,
+    holderAffiliation: (event?.holder_fields ?? DEFAULT_HOLDER_FIELDS).affiliation,
+    holderCountry: (event?.holder_fields ?? DEFAULT_HOLDER_FIELDS).country,
+    purchaseLimit: event?.purchase_limit_per_mobile ? String(event.purchase_limit_per_mobile) : "",
+    doorsAt: isoToZonedLocal(event?.doors_open_at ?? null, timeZone),
   };
 }
 
@@ -73,8 +102,12 @@ function validate(v: Values, editingSlug: boolean): Errors {
   if (!v.name.trim()) e.name = "Enter the event's name.";
   if (editingSlug && v.slug.trim() && !SLUG.test(v.slug.trim())) e.slug = "Use lower-case letters, numbers and hyphens, like banking-forum.";
   if (v.startsAt && v.endsAt && v.startsAt >= v.endsAt) e.endsAt = "The end must be after the start.";
+  if (v.doorsAt && v.endsAt && v.doorsAt >= v.endsAt) e.doorsAt = "The doors must open before the end.";
   if (v.opensAt && v.closesAt && v.opensAt >= v.closesAt) e.closesAt = "Sign-ups must close after they open.";
   if (v.capacity.trim() && !/^[1-9]\d{0,6}$/.test(v.capacity.trim())) e.capacity = "Enter a whole number above 0, or leave it empty.";
+  if (v.purchaseLimit.trim() && !(/^[1-9]\d{0,4}$/.test(v.purchaseLimit.trim()) && Number(v.purchaseLimit.trim()) <= 10_000)) {
+    e.purchaseLimit = "Enter a whole number from 1 to 10,000, or leave it empty for no limit.";
+  }
   return e;
 }
 
@@ -94,6 +127,11 @@ function toInput(v: Values, timeZone: string, sendSlug: boolean): EventInput {
     visibility: v.visibility,
     venue_id: v.venueId === NONE ? null : v.venueId,
     customer_account_id: v.clientId === NONE ? null : v.clientId,
+    registration_mode: v.registrationMode,
+    // All five together, as the API asks, in either mode.
+    holder_fields: { name: v.holderName, mobile: v.holderMobile, email: v.holderEmail, affiliation: v.holderAffiliation, country: v.holderCountry },
+    purchase_limit_per_mobile: v.purchaseLimit.trim() ? Number(v.purchaseLimit.trim()) : null,
+    doors_open_at: zonedLocalToIso(v.doorsAt, timeZone),
   };
 }
 
@@ -160,6 +198,8 @@ interface EventFormProps {
   /** Persist, then upload `cover` when one was picked. Throw an Error with a message to keep the form open and show it. */
   onSubmit: (input: EventInput, cover: File | null) => Promise<void>;
   onCancel: () => void;
+  /** Phase 9: a published event with guests already let in keeps its schedule (start, end, doors). */
+  scheduleLocked?: boolean;
 }
 
 /**
@@ -167,7 +207,7 @@ interface EventFormProps {
  * essentials (name, when, where, about) on the right, then the less common settings as a list of options. The form
  * fills in what it can (the end time, the web address) and hides what most people don't need (a sign-up window).
  */
-export function EventForm({ event, timeZone, organizationSlug, venues, clients, onSubmit, onCancel }: EventFormProps) {
+export function EventForm({ event, timeZone, organizationSlug, venues, clients, onSubmit, onCancel, scheduleLocked = false }: EventFormProps) {
   const editing = Boolean(event);
   const slugEditable = !event || event.status === "DRAFT";
   const [start] = useState(() => startValues(event, timeZone));
@@ -187,6 +227,15 @@ export function EventForm({ event, timeZone, organizationSlug, venues, clients, 
   const coverSrc = coverPreview ?? (event?.cover ? assetUrl(event.cover.url) : undefined);
 
   const dirty = cover !== null || (Object.keys(start) as (keyof Values)[]).some((k) => values[k] !== start[k]);
+
+  /** A hidden name means nothing else can be kept (a guest profile needs a name), so the others follow it. */
+  function setHolder(key: (typeof HOLDER_ROWS)[number]["key"], value: HolderFieldSetting) {
+    if (key === "holderName" && value === "HIDDEN") {
+      setValues((v) => ({ ...v, holderName: "HIDDEN", holderMobile: "HIDDEN", holderEmail: "HIDDEN", holderAffiliation: "HIDDEN", holderCountry: "HIDDEN" }));
+    } else {
+      setValues((v) => ({ ...v, [key]: value }));
+    }
+  }
 
   function set<K extends keyof Values>(key: K, value: Values[K]) {
     setValues((v) => ({ ...v, [key]: value }));
@@ -349,12 +398,19 @@ export function EventForm({ event, timeZone, organizationSlug, venues, clients, 
               </Field>
 
               <div className="flex flex-col gap-4 rounded-md border border-border bg-surface-2 p-4">
-                <Field label="Starts" htmlFor="ev-starts">
-                  <DateTimePicker className={TIME_FIT} id="ev-starts" value={values.startsAt} onValueChange={setStart} />
-                </Field>
-                <Field label="Ends" htmlFor="ev-ends" error={errors.endsAt}>
-                  <DateTimePicker className={TIME_FIT} id="ev-ends" value={values.endsAt} onValueChange={(v) => set("endsAt", v)} min={values.startsAt || undefined} />
-                </Field>
+                {/* A disabled fieldset locks every control inside (the picker has no disabled prop of its own). */}
+                <fieldset disabled={scheduleLocked} className="m-0 flex min-w-0 flex-col gap-4 border-0 p-0 disabled:opacity-60">
+                  <Field label="Starts" htmlFor="ev-starts">
+                    <DateTimePicker className={TIME_FIT} id="ev-starts" value={values.startsAt} onValueChange={setStart} />
+                  </Field>
+                  <Field label="Ends" htmlFor="ev-ends" error={errors.endsAt}>
+                    <DateTimePicker className={TIME_FIT} id="ev-ends" value={values.endsAt} onValueChange={(v) => set("endsAt", v)} min={values.startsAt || undefined} />
+                  </Field>
+                  <Field label="Doors open" htmlFor="ev-doors" error={errors.doorsAt} hint="Leave empty to open at the start time.">
+                    <DateTimePicker className={TIME_FIT} id="ev-doors" value={values.doorsAt} onValueChange={(v) => set("doorsAt", v)} max={values.endsAt || undefined} />
+                  </Field>
+                </fieldset>
+                {scheduleLocked && <p className="type-body-sm m-0 text-text-soft">The schedule can&apos;t change after the first guest is admitted.</p>}
                 <p className="type-body-sm m-0 flex flex-wrap items-center gap-x-1.5 text-text-soft">
                   <Globe className="size-4 flex-none" />
                   <span>{zoneName}</span>
@@ -375,6 +431,93 @@ export function EventForm({ event, timeZone, organizationSlug, venues, clients, 
               </Field>
             </div>
           </Card>
+
+          <section className="flex flex-col gap-3">
+            <div className="flex flex-col gap-0.5 px-1">
+              <h2 className="type-h3 m-0 text-text">Registration</h2>
+              <p className="type-body-sm m-0 text-text-soft">How people get tickets, and what you ask each guest.</p>
+            </div>
+            <Card>
+              <div className="flex flex-col gap-5">
+                <Field label="Registration mode">
+                  <div role="radiogroup" aria-label="Registration mode" className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <SelectCard
+                      selected={values.registrationMode === "QUICK"}
+                      onClick={() => set("registrationMode", "QUICK")}
+                      leading={
+                        <IconTile tone="charcoal" size="sm">
+                          <Zap />
+                        </IconTile>
+                      }
+                      title="Quick"
+                      subtitle="Buyers give one mobile number; tickets can be unnamed."
+                    />
+                    <SelectCard
+                      selected={values.registrationMode === "DETAILED"}
+                      onClick={() => set("registrationMode", "DETAILED")}
+                      leading={
+                        <IconTile tone="charcoal" size="sm">
+                          <ListChecks />
+                        </IconTile>
+                      }
+                      title="Detailed"
+                      subtitle="Collect each guest's details."
+                    />
+                  </div>
+                </Field>
+
+                {values.registrationMode === "DETAILED" && (
+                  <Field label="Guest details" hint={values.holderName === "HIDDEN" ? "With the name hidden, nothing else is collected: tickets are unnamed." : "What each guest is asked for."}>
+                    <div className="flex flex-col rounded-md border border-border">
+                      {HOLDER_ROWS.map((row) => {
+                        const locked = row.key !== "holderName" && values.holderName === "HIDDEN";
+                        return (
+                          <div key={row.key} className="flex flex-col gap-2 border-t border-border px-4 py-3 first:border-t-0 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                            <span className={locked ? "type-body text-text-faint" : "type-body text-text"}>{row.label}</span>
+                            <SegmentedControl
+                              size="sm"
+                              aria-label={`${row.label}: required, optional or hidden`}
+                              value={values[row.key]}
+                              onValueChange={(v) => !locked && setHolder(row.key, v as HolderFieldSetting)}
+                              options={[
+                                { value: "REQUIRED", label: "Required", disabled: locked },
+                                { value: "OPTIONAL", label: "Optional", disabled: locked },
+                                { value: "HIDDEN", label: "Hidden", disabled: locked },
+                              ]}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </Field>
+                )}
+
+                <Field
+                  label="Purchase limit"
+                  htmlFor="ev-purchase-limit"
+                  error={errors.purchaseLimit}
+                  hint="The most tickets one mobile number can get for this event, across all orders. Leave empty for no limit."
+                >
+                  <InputGroup
+                    id="ev-purchase-limit"
+                    inputMode="numeric"
+                    groupClassName="sm:max-w-[240px]"
+                    suffix={
+                      <InputAddon variant="suffix">
+                        <Ticket className="size-4" />
+                        per mobile
+                      </InputAddon>
+                    }
+                    value={values.purchaseLimit}
+                    error={!!errors.purchaseLimit}
+                    onChange={(e) => set("purchaseLimit", e.target.value.replace(/[^\d]/g, ""))}
+                    placeholder="No limit"
+                    autoComplete="off"
+                  />
+                </Field>
+              </div>
+            </Card>
+          </section>
 
           <section className="flex flex-col gap-3">
             <h2 className="type-h3 m-0 px-1 text-text">Event options</h2>

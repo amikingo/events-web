@@ -15,6 +15,7 @@
  */
 import { apiDownload, apiPage, apiRequest, apiRequestWithStatus, clampPageSize } from "@/lib/api-client";
 import type { Paginated } from "@/lib/api-client";
+import type { PaymentCase } from "@/lib/api/payment-cases";
 import type { PersonInput, RegistrationStatus } from "@/lib/api/persons";
 
 /** The latest confirmation SMS: `PENDING` (being sent), `SENT`, `FAILED` (gave up after 5 tries) or `SKIPPED` (limit reached). `null`: no Ethiopian mobile, so none was queued. */
@@ -30,8 +31,15 @@ export interface Registration {
   registered_by: string | null;
   registered_at: string;
   cancelled_at: string | null;
-  person: { id: string; first_name: string; last_name: string | null; phone: string | null; email: string | null; affiliation_name: string | null };
+  /** null for an unnamed ticket (a QUICK event's order): show the buyer's mobile from `order` instead. */
+  person: { id: string; first_name: string; last_name: string | null; phone: string | null; email: string | null; affiliation_name: string | null } | null;
   ticket_type: { id: string; code: string; name: string };
+  /** The order the ticket came in (Phase 7). */
+  order: { id: string; reference: string; buyer_mobile: string | null };
+  price: { amount: string; currency: string };
+  /** Phase 8: when the ticket was let in at the door, and by whom (a user id); null until then. */
+  checked_in_at: string | null;
+  checked_in_by: string | null;
   /** The notice the public form showed; null for staff entries. */
   privacy_notice: { version: string; shown_at: string } | null;
   confirmation: Confirmation;
@@ -44,7 +52,9 @@ export interface RegistrationSummary {
   capacity: number | null;
   confirmed: number;
   remaining: number | null;
-  ticket_types: { id: string; code: string; name: string; is_active: boolean; capacity: number | null; confirmed: number; remaining: number | null }[];
+  /** Phase 8: tickets let in at the door. */
+  checked_in: number;
+  ticket_types: { id: string; code: string; name: string; is_active: boolean; capacity: number | null; confirmed: number; remaining: number | null; checked_in: number }[];
 }
 
 /** An existing guest (`person_id`, after confirming who they are) or a new one (`person`), never both. */
@@ -60,8 +70,10 @@ export interface RegistrationListParams {
   pageSize: number;
   status?: RegistrationStatus;
   ticketTypeId?: string;
-  /** Searches the guest's names, email and phone. */
+  /** Searches the guest's names, email and phone, a ticket code, or a buyer's mobile. */
   q?: string;
+  /** Phase 8: only tickets let in at the door (true) or not yet (false). */
+  checkedIn?: boolean;
 }
 
 const base = (organizationId: string, eventId: string) => `/v1/organizations/${organizationId}/events/${eventId}/registrations`;
@@ -70,7 +82,7 @@ export function listRegistrations(organizationId: string, eventId: string, param
   return apiPage<Registration>(base(organizationId, eventId), {
     page: params.page,
     pageSize: clampPageSize(params.pageSize),
-    query: { status: params.status, ticket_type_id: params.ticketTypeId, q: params.q?.trim() || undefined },
+    query: { status: params.status, ticket_type_id: params.ticketTypeId, q: params.q?.trim() || undefined, checked_in: params.checkedIn === undefined ? undefined : String(params.checkedIn) },
     signal,
   });
 }
@@ -104,6 +116,18 @@ export async function registerGuest(
 /** `CANCELLED` frees the place. `CONFIRMED` brings a cancelled guest back if there is room (every check is repeated). */
 export function setRegistrationStatus(organizationId: string, eventId: string, registrationId: string, status: RegistrationStatus): Promise<Registration> {
   return apiRequest<Registration>(`${base(organizationId, eventId)}/${registrationId}/status`, { method: "PATCH", body: { status } });
+}
+
+/**
+ * Returns one confirmed ticket (Phase 8): frees its place. For a paid ticket the API opens a refund case under
+ * Payments (`refund_case`, null for a free one). Refused for a ticket already used at the door (409 ticket_already_used).
+ */
+export function returnTicket(
+  organizationId: string,
+  eventId: string,
+  registrationId: string,
+): Promise<{ outcome: "RETURNED" | "ALREADY_RETURNED"; registration: Registration; refund_case: PaymentCase | null }> {
+  return apiRequest(`${base(organizationId, eventId)}/${registrationId}/return`, { method: "POST" });
 }
 
 /** Moves a confirmed guest to another active ticket type of the same published event. */

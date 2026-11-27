@@ -139,6 +139,8 @@ export interface EventItem {
   lifecycle: EventLifecycle;
   /** Postponed events: the date it was originally planned for. */
   originalStartsAt?: string;
+  /** When the doors open, if the organizer set a time before the start (Phase 9). */
+  doorsOpenAt?: string;
   /** Cancelled or postponed events: why, in the organizer's words. */
   lifecycleNote?: string;
   /** Changes the organizer made after publishing ("Venue changed"). Newest first. */
@@ -174,8 +176,16 @@ export interface EventRegistration {
   privacyVersion: string;
   organizationSlug: string;
   eventSlug: string;
-  ticketTypes: { code: string; name: string }[];
+  /** Public ticket types with their price (a decimal string) and currency. */
+  ticketTypes: { code: string; name: string; price: string; currency: string; isFree: boolean }[];
+  /** QUICK or DETAILED, and how a DETAILED event asks for each guest detail. */
+  mode: "QUICK" | "DETAILED";
+  /** Most tickets one mobile may hold at this event, across every order; null = no limit. */
+  purchaseLimit: number | null;
+  holderFields: { name: HolderSetting; mobile: HolderSetting; email: HolderSetting; affiliation: HolderSetting; country: HolderSetting };
 }
+
+export type HolderSetting = "REQUIRED" | "OPTIONAL" | "HIDDEN";
 
 export type CoverPattern = "rings" | "grid" | "arcs" | "dots" | "waves" | "stripes" | "burst" | "blocks";
 

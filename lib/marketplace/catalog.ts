@@ -195,9 +195,14 @@ export async function loadEventDetail(organizationSlug: string, eventSlug: strin
   const base = eventFromCard(detail);
   const startsAt = base.startsAt;
   const endsAt = base.endsAt;
-  const tickets = detail.ticket_types.map((t) => registrationTicket(startsAt, endsAt, detail.registration_open, detail.registration_opens_at, detail.registration_closes_at, t.name, t.code));
+  // Prices are shown only (never added up here), so the marketplace's numeric price is set from the API's string.
+  const tickets = detail.ticket_types.map((t) => ({
+    ...registrationTicket(startsAt, endsAt, detail.registration_open, detail.registration_opens_at, detail.registration_closes_at, t.name, t.code),
+    price: t.is_free ? 0 : Number(t.price),
+  }));
   const event: EventItem = {
     ...base,
+    doorsOpenAt: detail.doors_open_at ?? undefined,
     description: (detail.description ?? "").split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean),
     ticketTypes: tickets.length ? tickets : base.ticketTypes,
     registration: {
@@ -207,7 +212,10 @@ export async function loadEventDetail(organizationSlug: string, eventSlug: strin
       privacyVersion: detail.privacy_notice.version,
       organizationSlug: detail.organization.slug,
       eventSlug: detail.slug,
-      ticketTypes: detail.ticket_types,
+      ticketTypes: detail.ticket_types.map((t) => ({ code: t.code, name: t.name, price: t.price, currency: t.currency, isFree: t.is_free })),
+      mode: detail.registration_mode,
+      purchaseLimit: detail.purchase_limit_per_mobile,
+      holderFields: detail.holder_fields,
     },
   };
   const placed = venueOf(detail);

@@ -1,3 +1,4 @@
+import { DoorOpen } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { formatNumber } from "../../lib/format";
@@ -15,6 +16,90 @@ import { LeafletMap } from "../ui/location-map-leaflet";
 import { Tab, TabList, TabPanel, Tabs } from "../ui/tabs";
 import { EventCover } from "./event-cover";
 import { EventStatusBadge } from "./event-status-badge";
+import { Container } from "./section";
+import { ShareButton } from "./share-button";
+
+/* ───────── Hero ───────── */
+
+/**
+ * The event page's opening: the cover across the full width, fading into the page at the bottom, with the event's name,
+ * date, time and place over the fade. The fade uses the page's own background, so the text reads in light and dark.
+ */
+export function EventHero({ event, venue, city, categoryName, now }: { event: EventItem; venue?: Venue; city?: City; categoryName: string; now: string }) {
+  const nowMs = Date.parse(now);
+  const ended = event.lifecycle === "cancelled" || eventPhase(event, nowMs) === "ended";
+  const where = event.format === "online" ? `Online on ${event.onlinePlatform ?? "a video call"}` : [venue?.name, city?.name].filter(Boolean).join(", ");
+  const sameDay = formatDateShort(event.startsAt, event.timezone) === formatDateShort(event.endsAt, event.timezone);
+  return (
+    // Pulled up under the floating header (its 76px strip is see-through, as on the landing page), so the cover reaches the
+    // very top of the page and the header's pill floats over it. Keep in step with HEADER_HEIGHT in site-header.tsx.
+    <section className="relative isolate -mt-[76px] overflow-hidden" aria-labelledby="event-title">
+      <div className="absolute inset-0 -z-20" aria-hidden="true">
+        <EventCover seed={event.id} pattern={event.coverPattern} category={event.categoryId} src={event.coverUrl} muted={ended} />
+      </div>
+      <div
+        className="absolute inset-0 -z-10 bg-[linear-gradient(to_top,var(--color-bg)_0%,color-mix(in_srgb,var(--color-bg)_55%,transparent)_22%,transparent_45%)]"
+        aria-hidden="true"
+      />
+      <Container className="flex min-h-[480px] flex-col justify-end pb-8 pt-36 sm:min-h-[580px] lg:min-h-[70vh]">
+        <Breadcrumb
+          className="mb-3"
+          items={[
+            { label: "Events", href: "/events" },
+            ...(categoryName !== "Events" ? [{ label: categoryName, href: exploreHref({ category: event.categoryId }) }] : []),
+            { label: event.title },
+          ]}
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <EventStatusBadge event={event} now={nowMs} size="md" />
+          {event.format !== "in-person" && (
+            <Pill tone="neutral" size="sm">
+              {event.format === "online" ? "Online" : "In person and online"}
+            </Pill>
+          )}
+          {event.ageRestriction && (
+            <Pill tone="neutral" size="sm">
+              {event.ageRestriction}
+            </Pill>
+          )}
+        </div>
+        <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0">
+            <h1 id="event-title" className="m-0 type-h1 text-[clamp(2rem,6vw,4rem)] font-extrabold uppercase leading-[1.02] tracking-[-0.01em] text-text">
+              {event.title}
+            </h1>
+            <ul className="m-0 mt-4 flex list-none flex-wrap items-center gap-x-6 gap-y-2 p-0 type-body-sm text-text-soft">
+              <li className="flex items-center gap-2">
+                <CalendarIcon className="size-4 text-accent-text" />
+                {sameDay ? formatDateShort(event.startsAt, event.timezone) : `${formatDateShort(event.startsAt, event.timezone)} to ${formatDateShort(event.endsAt, event.timezone)}`}
+              </li>
+              <li className="flex items-center gap-2">
+                <ClockIcon className="size-4 text-accent-text" />
+                {formatEventTime(event.startsAt, event.timezone)} – {formatEventTime(event.endsAt, event.timezone)}
+                {zoneNote(event.timezone) && <span className="text-text-faint">({zoneNote(event.timezone)})</span>}
+              </li>
+              {event.doorsOpenAt && event.lifecycle !== "cancelled" && (
+                <li className="flex items-center gap-2">
+                  <DoorOpen className="size-4 text-accent-text" />
+                  Doors open {formatEventTime(event.doorsOpenAt, event.timezone)}
+                </li>
+              )}
+              {where && (
+                <li className="flex items-center gap-2">
+                  {event.format === "online" ? <MonitorIcon className="size-4 text-accent-text" /> : <MapPinIcon className="size-4 text-accent-text" />}
+                  {where}
+                </li>
+              )}
+            </ul>
+          </div>
+          <div className="flex flex-none items-center gap-2">
+            <ShareButton title={event.title} />
+          </div>
+        </div>
+      </Container>
+    </section>
+  );
+}
 
 /* ───────── Header ───────── */
 
@@ -28,7 +113,8 @@ export function EventDetailsHeader({ event, organizer, venue, city, categoryName
         className="mb-4"
         items={[
           { label: "Events", href: "/events" },
-          { label: categoryName, href: exploreHref({ category: event.categoryId }) },
+          // An event without a category falls back to "Events": no second "Events" crumb then.
+          ...(categoryName !== "Events" ? [{ label: categoryName, href: exploreHref({ category: event.categoryId }) }] : []),
           { label: event.title },
         ]}
       />
@@ -36,9 +122,11 @@ export function EventDetailsHeader({ event, organizer, venue, city, categoryName
         <EventCover seed={event.id} pattern={event.coverPattern} category={event.categoryId} src={event.coverUrl} muted={ended} />
       </div>
       <div className="mt-6 flex flex-wrap items-center gap-2">
-        <Link href={exploreHref({ category: event.categoryId })} className="rounded-sm type-label text-accent-text hover:underline">
-          {categoryName}
-        </Link>
+        {categoryName !== "Events" && (
+          <Link href={exploreHref({ category: event.categoryId })} className="rounded-sm type-label text-accent-text hover:underline">
+            {categoryName}
+          </Link>
+        )}
         <EventStatusBadge event={event} now={nowMs} size="md" />
         {event.format !== "in-person" && (
           <Pill tone="neutral" size="sm">

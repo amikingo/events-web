@@ -72,9 +72,9 @@ export function Hero({ cities, wall, liveCount }: { cities: City[]; wall: EventS
 
         {/* Desktop: three columns of posters drifting in opposite directions, faded at the edges. */}
         <div aria-hidden="true" className="relative hidden h-[680px] grid-cols-3 gap-4 [mask-image:linear-gradient(to_bottom,transparent,black_14%,black_86%,transparent)] lg:grid">
-          <PosterColumn events={cols[0]!} direction="up" duration={70} />
-          <PosterColumn events={cols[1]!} direction="down" duration={85} className="-mt-24" />
-          <PosterColumn events={cols[2]!} direction="up" duration={78} />
+          <PosterColumn events={cols[0]!} direction="up" duration={15} />
+          <PosterColumn events={cols[1]!} direction="down" duration={15} className="-mt-24" />
+          <PosterColumn events={cols[2]!} direction="up" duration={15} />
         </div>
       </Container>
 

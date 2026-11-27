@@ -22,6 +22,19 @@ export type EventStatus = "DRAFT" | "PUBLISHED" | "CLOSED" | "CANCELLED";
 /** What to show on the badge: LIVE while a published event runs; a cancelled event stays CANCELLED. */
 export type EventDisplayStatus = EventStatus | "LIVE";
 export type EventVisibility = "PUBLIC" | "UNLISTED";
+/** QUICK: buyers give one mobile, tickets may be unnamed. DETAILED (default): each guest's details are collected. */
+export type RegistrationMode = "QUICK" | "DETAILED";
+export type HolderFieldSetting = "REQUIRED" | "OPTIONAL" | "HIDDEN";
+/** How a DETAILED event asks for each guest detail. Always sent all five together. A hidden name hides the rest. */
+export interface HolderFields {
+  name: HolderFieldSetting;
+  mobile: HolderFieldSetting;
+  email: HolderFieldSetting;
+  affiliation: HolderFieldSetting;
+  country: HolderFieldSetting;
+}
+/** The API's default for a new event. */
+export const DEFAULT_HOLDER_FIELDS: HolderFields = { name: "REQUIRED", mobile: "REQUIRED", email: "OPTIONAL", affiliation: "OPTIONAL", country: "OPTIONAL" };
 
 /** A staff event, as `GET /v1/organizations/{id}/events` returns it. Instants are ISO strings in UTC. */
 export interface StaffEvent {
@@ -46,7 +59,17 @@ export interface StaffEvent {
   registration_closes_at: string | null;
   visibility: EventVisibility;
   category: string | null;
+  registration_mode: RegistrationMode;
+  holder_fields: HolderFields;
+  /** Most tickets one mobile may hold at this event, across every order; null = no limit. */
+  purchase_limit_per_mobile: number | null;
   published_at: string | null;
+  /** Phase 9: when the doors open for admission; null = at `starts_at`. Admission ends at `ends_at`. */
+  doors_open_at: string | null;
+  /** Phase 9: set when the event was cancelled; whether tickets already used at the door are refunded too. */
+  cancelled_at: string | null;
+  cancelled_by: string | null;
+  refund_admitted_tickets: boolean | null;
   /** `url` is a path: show it with `assetUrl`. */
   cover: { url: string } | null;
   created_at: string;
@@ -66,15 +89,28 @@ export interface EventInput {
   registration_closes_at: string | null;
   visibility: EventVisibility;
   category: string | null;
+  registration_mode?: RegistrationMode;
+  holder_fields?: HolderFields;
+  purchase_limit_per_mobile?: number | null;
+  /** Phase 9: optional, before `ends_at`; null opens the doors at the start. */
+  doors_open_at?: string | null;
   customer_account_id: string | null;
   venue_id: string | null;
 }
+
+/** Who may get a ticket type: anyone on the public page, or only staff issuing tickets. */
+export type TicketAudience = "PUBLIC" | "STAFF_ONLY";
 
 export interface TicketType {
   id: string;
   event_id: string;
   code: string;
   name: string;
+  /** A decimal string, always with two places (`"500.00"`); `"0.00"` is free. Never compute with it as a float. */
+  price: string;
+  /** The organizer's currency (`"ETB"`); set by the API, never sent. */
+  currency: string;
+  audience: TicketAudience;
   /** null = no separate limit: it draws on the event's capacity only. */
   capacity: number | null;
   display_order: number;
@@ -87,6 +123,9 @@ export interface TicketTypeInput {
   code: string;
   name: string;
   capacity: number | null;
+  /** A decimal string such as `"500"` or `"500.50"`; `"0"` is free (the default). */
+  price?: string;
+  audience?: TicketAudience;
 }
 
 const base = (organizationId: string) => `/v1/organizations/${organizationId}/events`;
@@ -128,6 +167,31 @@ export function updateEvent(organizationId: string, eventId: string, changes: Pa
  */
 export function setEventStatus(organizationId: string, eventId: string, status: "PUBLISHED" | "CLOSED" | "CANCELLED"): Promise<StaffEvent> {
   return apiRequest<StaffEvent>(`${base(organizationId)}/${eventId}/status`, { method: "PATCH", body: { status } });
+}
+
+/**
+ * Phase 9: cancels a DRAFT or PUBLISHED event. The API stops sales and the door, cancels unused tickets, opens one
+ * refund case per paid order and texts the buyers. `refundAdmittedTickets` is required once a guest was let in
+ * (else 400 with issue `refund_decision_required`). Cancelling again changes nothing.
+ */
+export function cancelEvent(organizationId: string, eventId: string, refundAdmittedTickets?: boolean): Promise<StaffEvent> {
+  return apiRequest<StaffEvent>(`${base(organizationId)}/${eventId}/cancel`, {
+    method: "POST",
+    body: refundAdmittedTickets === undefined ? {} : { refund_admitted_tickets: refundAdmittedTickets },
+  });
+}
+
+/**
+ * Phase 9: moves a published event before its first admission (else 409 `event_has_admissions`). Start and end go
+ * together; when the event has its own door time, send `doors_open_at` again (same, new, or null), else 400
+ * `doors_open_at_reconfirm`. Tickets and codes stay valid; buyers are texted about a real move.
+ */
+export function rescheduleEvent(
+  organizationId: string,
+  eventId: string,
+  input: { starts_at: string; ends_at: string; doors_open_at?: string | null },
+): Promise<StaffEvent> {
+  return apiRequest<StaffEvent>(`${base(organizationId)}/${eventId}/reschedule`, { method: "POST", body: input });
 }
 
 /** JPEG, PNG or WebP up to 5 MB, as the only field `file`. Replaces the current cover. */
