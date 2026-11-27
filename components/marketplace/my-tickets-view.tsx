@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "@/app/auth/session";
-import { TicketQr } from "@/components/checkout/ticket-qr";
+import { EventTicket } from "@/components/checkout/event-ticket";
+import { TicketDesignPicker } from "@/components/checkout/ticket-design";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -14,7 +15,11 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { listMyTickets } from "@/lib/api/customer";
 import type { MyTicket } from "@/lib/api/customer";
 import { describeApiError } from "@/lib/api/errors";
+import { getPublicEvent } from "@/lib/api/public-events";
+import type { PublicEventDetail } from "@/lib/api/public-events";
+import { assetUrl } from "@/lib/api-client";
 import { formatMomentFull, formatRangeFull } from "@/lib/ethiopian-datetime";
+import { usePublicTicketLook } from "@/lib/ticket-design-share";
 
 function isPastTicket(ticket: MyTicket, nowMs: number): boolean {
   const endIso = ticket.event.ends_at ?? ticket.event.starts_at;
@@ -41,7 +46,42 @@ function TicketsSkeleton() {
   );
 }
 
+/**
+ * The designed ticket for one of My Tickets: the cover and venue come from the event's public page. When the organizer
+ * saved a design it's the only one; otherwise the buyer chooses.
+ */
+function FullTicket({ ticket }: { ticket: MyTicket }) {
+  const design = usePublicTicketLook(ticket.organization.slug, ticket.event.slug);
+  const [event, setEvent] = useState<PublicEventDetail | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    getPublicEvent(ticket.organization.slug, ticket.event.slug, controller.signal)
+      .then(setEvent)
+      .catch(() => undefined); // The ticket still shows, in the brand colours.
+    return () => controller.abort();
+  }, [ticket.organization.slug, ticket.event.slug]);
+  if (design.loading) return <Skeleton className="mx-auto h-[420px] w-full max-w-[420px] rounded-md" />;
+  return (
+    <div className="flex w-full flex-col gap-4">
+      {!design.look && <TicketDesignPicker className="mx-auto w-full max-w-[420px]" />}
+      <EventTicket
+        look={design.look ?? undefined}
+        eventName={ticket.event.name}
+        eventSlug={ticket.event.slug}
+        organizerName={ticket.organization.name}
+        startsAt={ticket.event.starts_at}
+        timeZone={ticket.event.timezone}
+        venue={event?.venue ? [event.venue.name, event.venue.city].filter(Boolean).join(", ") : null}
+        coverUrl={event?.cover ? assetUrl(event.cover.url) : null}
+        ticketType={ticket.ticket_type.name}
+        code={ticket.code}
+      />
+    </div>
+  );
+}
+
 function TicketCard({ ticket, past }: { ticket: MyTicket; past: boolean }) {
+  const [open, setOpen] = useState(false);
   const cancelled = ticket.status === "CANCELLED";
   const muted = cancelled || past;
   const eventHref = `/events/${ticket.organization.slug}/${ticket.event.slug}`;
@@ -74,9 +114,7 @@ function TicketCard({ ticket, past }: { ticket: MyTicket; past: boolean }) {
             <span className="type-body-sm text-text-faint">Registration cancelled</span>
           </div>
         ) : (
-          <div className="flex flex-none items-center gap-4 sm:flex-row-reverse">
-            {/* The QR holds the code only (Phase 8): show it at the door, or save or share it for a friend. */}
-            {!past && <TicketQr code={ticket.code} label={`QR code for ticket ${ticket.code}`} size={96} downloadName={ticket.event.slug} />}
+          <div className="flex flex-none flex-wrap items-center gap-3">
             <div className="flex flex-col items-start rounded-md border border-border bg-surface-2 px-4 py-3 sm:items-end sm:text-right">
               <span className="type-label text-text-faint">Entry code</span>
               <span
@@ -86,9 +124,19 @@ function TicketCard({ ticket, past }: { ticket: MyTicket; past: boolean }) {
                 {ticket.code}
               </span>
             </div>
+            {!past && (
+              <Button variant={open ? "secondary" : undefined} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+                {open ? "Hide ticket" : "Show ticket"}
+              </Button>
+            )}
           </div>
         )}
       </div>
+      {open && !past && !cancelled && (
+        <div className="mt-5 border-t border-border pt-5">
+          <FullTicket ticket={ticket} />
+        </div>
+      )}
     </Card>
   );
 }

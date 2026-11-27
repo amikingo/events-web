@@ -5,6 +5,14 @@ import { ArrowLeft, Copy, CreditCard, Eye, KeyRound, MessageSquare, Phone, Print
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useModuleAccess } from "@/components/ability-provider";
+import { useAuth } from "@/lib/auth-context";
+import { listAllVenues } from "@/lib/api/venues";
+import { getOrganization } from "@/lib/api/organizations";
+import { assetUrl } from "@/lib/api-client";
+import { EventTicket } from "@/components/checkout/event-ticket";
+import { TicketDesignPicker, useTicketDesign } from "@/components/checkout/ticket-design";
+import { ticketSize } from "@/lib/ticket-image";
+import { useEventTicketDesign } from "@/lib/use-event-ticket-design";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
@@ -28,8 +36,8 @@ import { formatMomentFull, formatMomentShort } from "@/lib/ethiopian-datetime";
 import { phoneDigits } from "@/lib/marketplace/validation";
 import { formatNumber } from "@/lib/format";
 import { takeStaffHandover } from "@/lib/order-tokens";
-import { formatPrice } from "@/lib/price";
-import { orderQk } from "@/lib/query-keys";
+import { formatPrice, isFreePrice } from "@/lib/price";
+import { orderQk, organizationQk, venueQk } from "@/lib/query-keys";
 import { MODULE_CODES } from "@/lib/constants/modules";
 import { ReturnTicketDialog } from "./return-ticket";
 
@@ -133,6 +141,76 @@ function PaymentRow({ label, children }: { label: string; children: ReactNode })
 }
 
 /** One order: who bought it, the total, the confirmation SMS, and every ticket with its code and holder. */
+/** How many designed tickets show before "Show all". */
+const TICKETS_SHOWN = 6;
+
+/**
+ * The order's tickets as the buyer sees them (cover, details, QR), to download, share or print for a guest. Only
+ * confirmed tickets with a code have one: held, cancelled and returned tickets stay in the table.
+ */
+function OrderTickets({ event, tickets }: { event: StaffEvent; tickets: OrderTicket[] }) {
+  const { assignment } = useAuth();
+  const switched = useTicketDesign();
+  // The event's saved design, the one its buyers get.
+  const saved = useEventTicketDesign(event.organization_id, event.id);
+  const look = saved.look ?? undefined;
+  const size = ticketSize(look?.design ?? switched, look?.artwork);
+  const orgId = event.organization_id;
+  const [all, setAll] = useState(false);
+  // The organizer's name and the venue, for the ticket. A role that can't read them still sees the ticket.
+  const organization = useQuery({ queryKey: organizationQk.detail(orgId), queryFn: ({ signal }) => getOrganization(orgId, signal) });
+  const venues = useQuery({ queryKey: venueQk.everyone(orgId), queryFn: ({ signal }) => listAllVenues(orgId, signal), enabled: Boolean(event.venue_id) });
+  const venue = venues.data?.find((v) => v.id === event.venue_id);
+  const issued = tickets.filter((t) => t.status === "CONFIRMED" && t.code);
+  if (issued.length === 0) return null;
+  const shown = all ? issued : issued.slice(0, TICKETS_SHOWN);
+
+  return (
+    <section className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div className="flex flex-col">
+          <h2 className="type-h3 m-0 text-text">Tickets to hand out</h2>
+          <p className="type-body-sm m-0 text-text-soft">Download or print one for a guest who didn&apos;t get their SMS.</p>
+        </div>
+        {saved.loading ? null : look ? (
+          <p className="type-body-sm m-0 text-text-soft">Using this event&apos;s saved design. Change it with Ticket design on the event page.</p>
+        ) : (
+          <TicketDesignPicker className="w-full md:w-[360px]" />
+        )}
+      </div>
+      {/* The wide design needs wider columns. */}
+      <ul className={size.width > size.height ? "m-0 grid list-none grid-cols-1 items-start gap-6 p-0 2xl:grid-cols-2" : "m-0 grid list-none grid-cols-1 items-start gap-6 p-0 md:grid-cols-2 2xl:grid-cols-3"}>
+        {saved.loading && <li className="w-full"><Skeleton shape="block" height={320} /></li>}
+        {!saved.loading && shown.map((t, i) => (
+          <li key={t.id} className="w-full">
+            <EventTicket
+              eventName={event.name}
+              eventSlug={event.slug}
+              organizerName={organization.data?.name ?? assignment?.organization?.name ?? ""}
+              startsAt={event.starts_at}
+              timeZone={event.timezone}
+              venue={venue ? [venue.name, venue.city].filter(Boolean).join(", ") : null}
+              coverUrl={event.cover ? assetUrl(event.cover.url) : null}
+              ticketType={isFreePrice(t.price.amount) || look?.showPrice === false ? t.ticket_type.name : `${t.ticket_type.name} · ${formatPrice(t.price.amount, t.price.currency)}`}
+              look={look}
+              guest={t.holder ? [t.holder.first_name, t.holder.last_name].filter(Boolean).join(" ") : null}
+              code={t.code!}
+              position={issued.length > 1 ? `Ticket ${i + 1} of ${issued.length}` : undefined}
+            />
+          </li>
+        ))}
+      </ul>
+      {issued.length > TICKETS_SHOWN && (
+        <div className="flex justify-center">
+          <Button variant="secondary" onClick={() => setAll((v) => !v)}>
+            {all ? "Show fewer" : `Show all ${issued.length} tickets`}
+          </Button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function OrderPage({ event, orderId, back: backTo }: { event: StaffEvent; orderId: string; back?: { label: string; href: string } }) {
   const router = useRouter();
   const orgId = event.organization_id;
@@ -332,6 +410,8 @@ export function OrderPage({ event, orderId, back: backTo }: { event: StaffEvent;
         }
         emptyState={<EmptyState size="sm" title="No tickets in this order" description="This shouldn't happen. Reload the page." />}
       />
+
+      <OrderTickets event={event} tickets={order.tickets} />
 
       <ReturnTicketDialog
         organizationId={orgId}

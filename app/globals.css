@@ -272,3 +272,29 @@
   --chart-segment-background: color-mix(in oklab, var(--color-text) 6%, transparent);
   --chart-segment-line: color-mix(in oklab, var(--color-text) 25%, transparent);
 }
+
+/*
+ * Paint for the ticket designs that have colours of their own (`lib/ticket-wide.ts`). A ticket is a printed picture,
+ * not part of the interface, so these stay the same in dark mode and no component should use them.
+ */
+:root {
+  --ticket-black: #101014;
+  --ticket-gold-light: #f8e6a6;
+  --ticket-gold: #dfb54f;
+  --ticket-gold-deep: #a57c1f;
+  --ticket-curtain-light: #a8202a;
+  --ticket-curtain-deep: #4a070c;
+  --ticket-sun: #ffd24a;
+  --ticket-night: #131138;
+  --ticket-violet: #40298c;
+  --ticket-glow: #ffdc8c;
+  --ticket-orange: #ff6a2b;
+  --ticket-lime: #c9f53b;
+  --ticket-cream: #f6edda;
+  --ticket-brick: #9c2b2e;
+  --ticket-butter: #ffe45e;
+  --ticket-blue: #2c47d1;
+  --ticket-pink: #ef4f93;
+  --ticket-teal: #14a398;
+  --ticket-serif: Georgia, "Times New Roman", serif;
+}

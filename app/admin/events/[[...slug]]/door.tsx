@@ -257,7 +257,7 @@ export function DoorScreen({ event, onBack, picker }: { event: StaffEvent; onBac
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
         {/* The stage: the camera, with each answer flashed over it in full colour. */}
         <Card className="overflow-hidden p-0">
-          <div className="relative aspect-[4/5] w-full overflow-hidden bg-charcoal text-white sm:aspect-video">
+          <div className="relative aspect-[4/5] w-full overflow-hidden bg-paper-ink text-white sm:aspect-video">
             <video ref={videoRef} className={camera === "on" ? "absolute inset-0 block size-full object-cover" : "hidden"} playsInline muted />
             <canvas ref={canvasRef} className="hidden" />
 
@@ -267,7 +267,7 @@ export function DoorScreen({ event, onBack, picker }: { event: StaffEvent; onBac
               <>
                 {/* eslint-disable-next-line @next/next/no-img-element -- an uploaded file from the API, shown as a backdrop */}
                 <img src={assetUrl(event.cover.url)} alt="" aria-hidden="true" className="absolute inset-0 size-full scale-105 object-cover blur-[2px]" />
-                <div className="absolute inset-0 bg-charcoal/75" aria-hidden="true" />
+                <div className="absolute inset-0 bg-paper-ink/75" aria-hidden="true" />
               </>
             )}
 

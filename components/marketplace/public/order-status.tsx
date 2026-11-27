@@ -2,17 +2,19 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { CalendarDays, CalendarPlus, CalendarX2, CheckCircle2, Clock, CreditCard, DoorOpen, Ticket } from "lucide-react";
+import { CalendarDays, CalendarPlus, CalendarX2, CheckCircle2, Clock, CreditCard, DoorOpen } from "lucide-react";
 import { useSession } from "@/app/auth/session";
 import { Button } from "@/components/ui/button";
-import { TicketQr } from "@/components/checkout/ticket-qr";
+import { EventTicket } from "@/components/checkout/event-ticket";
+import { TicketDesignPicker } from "@/components/checkout/ticket-design";
 import { ShareButton } from "@/components/marketplace/share-button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorBanner } from "@/components/ui/error-banner";
 import { IconTile } from "@/components/ui/icon-tile";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ApiError } from "@/lib/api-client";
+import { StatusPill } from "@/components/ui/status-pill";
+import { ApiError, assetUrl } from "@/lib/api-client";
 import { describeApiError } from "@/lib/api/errors";
 import { checkPublicOrder, getPublicOrder, startPublicPayment } from "@/lib/api/orders";
 import type { PublicOrder } from "@/lib/api/orders";
@@ -22,6 +24,7 @@ import { formatMomentFull } from "@/lib/ethiopian-datetime";
 import { readOrderToken } from "@/lib/order-tokens";
 import { wasPriceChanged } from "@/lib/price-change";
 import { formatPrice, isFreePrice } from "@/lib/price";
+import { usePublicTicketLook } from "@/lib/ticket-design-share";
 
 /** How long to wait between looks at an order that's waiting for payment. */
 const POLL_MS = 5000;
@@ -122,6 +125,8 @@ export function OrderStatusView({ reference }: { reference: string }) {
     return () => controller.abort();
   }, [eventKey]);
   const countdown = useCountdown(order?.status === "PENDING_PAYMENT" ? order.hold_expires_at : null);
+  // The organizer's ticket design, when they saved one: then it's the only one.
+  const design = usePublicTicketLook(order?.organization.slug, order?.event.slug);
 
   // On arrival: read the order. Only if it's waiting for payment, ask Cheche Pay once (the buyer may be back from paying).
   useEffect(() => {
@@ -284,42 +289,43 @@ export function OrderStatusView({ reference }: { reference: string }) {
           </div>
         </Card>
 
-        {/* Each ticket as a stub: who, which ticket, the code to show at the door. */}
-        <ul className="m-0 flex list-none flex-col gap-3 p-0" aria-label="Your tickets">
+        {/* Each ticket as a ticket: cover, details, QR; one that was cancelled or returned has no QR. */}
+        {!design.loading && !design.look && order.tickets.some((t) => t.code && t.status === "CONFIRMED") && <TicketDesignPicker className="mx-auto w-full max-w-[420px]" />}
+        <ul className="m-0 flex list-none flex-col gap-8 p-0" aria-label="Your tickets">
           {order.tickets.map((t, i) => (
-            <li key={`${t.code ?? "pending"}-${i}`} className="overflow-hidden rounded-lg border border-border bg-surface">
-              <div className="flex items-center justify-between gap-3 border-b border-dashed border-border px-4 py-3">
-                <div className="flex min-w-0 items-center gap-2">
-                  <Ticket className="size-4 flex-none text-accent-text" />
-                  <span className="type-body-sm truncate font-medium text-text">
-                    {t.ticket_type.name}
-                    {!isFreePrice(t.price.amount) && ` · ${formatPrice(t.price.amount, t.price.currency)}`}
-                  </span>
-                </div>
-                <span className="type-body-sm text-text-faint">
-                  Ticket {i + 1} of {order.tickets.length}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-4 px-4 py-4">
-                <div className="flex min-w-0 flex-col gap-3">
-                  <div className="flex min-w-0 flex-col">
-                    <span className="type-label text-text-faint">Guest</span>
-                    <span className="type-body truncate font-semibold text-text">{holderName(t.holder)}</span>
+            <li key={`${t.code ?? "pending"}-${i}`} className="mx-auto w-full">
+              {t.code && t.status === "CONFIRMED" && design.loading ? (
+                <Skeleton className="mx-auto h-[420px] w-full max-w-[420px] rounded-md" />
+              ) : t.code && t.status === "CONFIRMED" ? (
+                <EventTicket
+                  look={design.look ?? undefined}
+                  eventName={order.event.name}
+                  eventSlug={order.event.slug}
+                  organizerName={order.organization.name}
+                  startsAt={startsAt}
+                  timeZone={order.event.timezone}
+                  venue={liveEvent?.venue ? [liveEvent.venue.name, liveEvent.venue.city].filter(Boolean).join(", ") : null}
+                  coverUrl={liveEvent?.cover ? assetUrl(liveEvent.cover.url) : null}
+                  ticketType={isFreePrice(t.price.amount) || design.look?.showPrice === false ? t.ticket_type.name : `${t.ticket_type.name} · ${formatPrice(t.price.amount, t.price.currency)}`}
+                  guest={holderName(t.holder)}
+                  code={t.code}
+                  position={order.tickets.length > 1 ? `Ticket ${i + 1} of ${order.tickets.length}` : undefined}
+                />
+              ) : (
+                <Card>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex min-w-0 flex-col">
+                      <span className="type-body truncate font-semibold text-text">{holderName(t.holder)}</span>
+                      <span className="type-body-sm text-text-soft">{t.ticket_type.name} · can&apos;t be used</span>
+                    </div>
+                    <StatusPill kind="registration" status={t.status} />
                   </div>
-                  <div className="flex flex-col">
-                    <span className="type-label text-text-faint">Code</span>
-                    <span className="font-mono text-[1.5rem] font-semibold tracking-[0.16em] text-text" aria-label={t.code ? `Code ${t.code.split("").join(" ")}` : "No code yet"}>
-                      {t.code ?? "—"}
-                    </span>
-                  </div>
-                </div>
-                {/* One QR per ticket: the code only, so it can be shared without the rest of the order. */}
-                {t.code && t.status === "CONFIRMED" && <TicketQr code={t.code} label={`QR code for ticket ${t.code}`} downloadName={order.event.slug} />}
-              </div>
+                </Card>
+              )}
             </li>
           ))}
         </ul>
-        <p className="m-0 text-center type-body-sm text-text-soft">Show the QR or the code at the door. Save a QR to show it without a connection.</p>
+        <p className="m-0 text-center type-body-sm text-text-soft">Download a ticket to show it without a connection.</p>
 
         <div className="flex flex-wrap justify-center gap-2">
           {signedIn && (

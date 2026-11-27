@@ -39,6 +39,7 @@ import { DoorScreen } from "./door";
 import { IssueTicketsForm } from "./issue-tickets-form";
 import { OrderPage, OrdersTab } from "./orders-tab";
 import { RegistrationsTab } from "./registrations-tab";
+import { TicketDesignPage } from "./ticket-design-page";
 
 const BASE = "/admin/events";
 const MODULE = MODULE_CODES.EVENTS;
@@ -209,10 +210,10 @@ function EventsView({ organizationId }: { organizationId: string }) {
   const venueName = (id: string | null) => (id ? (venues.find((v) => v.id === id)?.name ?? "A venue") : "No venue yet");
   const clientName = (id: string | null) => (id ? (clients.find((c) => c.id === id)?.name ?? "A client") : "Our own event");
 
-  // An event's own pages beyond the record: /events/{id}/issue (Issue tickets), /events/{id}/door (the door) and
-  // /events/{id}/orders/{orderId}.
+  // An event's own pages beyond the record: /events/{id}/issue (Issue tickets), /events/{id}/door (the door),
+  // /events/{id}/design (Ticket design) and /events/{id}/orders/{orderId}.
   const [, sub, subId] = pathname.slice(BASE.length).split("/").filter(Boolean);
-  if (openId && (sub === "issue" || sub === "door" || (sub === "orders" && subId))) {
+  if (openId && (sub === "issue" || sub === "door" || sub === "design" || (sub === "orders" && subId))) {
     const ev = events.find((e) => e.id === openId);
     if (!ev) {
       if (list.isPending || detail.isPending) return null;
@@ -223,6 +224,12 @@ function EventsView({ organizationId }: { organizationId: string }) {
         return <EmptyState size="lg" title="You can't let guests in" description="Ask an admin for the Guests › update right." />;
       }
       return <DoorScreen event={ev} onBack={() => go(`${BASE}/${ev.id}`)} />;
+    }
+    if (sub === "design") {
+      if (!canUpdate) {
+        return <EmptyState size="lg" title="You can't design tickets" description="Ask an admin for the Events › update right." />;
+      }
+      return <TicketDesignPage event={ev} venueName={ev.venue_id ? (venues.find((v) => v.id === ev.venue_id)?.name ?? null) : null} onBack={() => go(`${BASE}/${ev.id}`)} />;
     }
     if (sub === "issue") {
       if (!can("create", MODULE_CODES.REGISTRATIONS)) {
@@ -385,7 +392,9 @@ function EventsView({ organizationId }: { organizationId: string }) {
             </>
           ),
         };
-        if (!canUpdate || !isEditable(e)) return base;
+        const design = { label: "Ticket design", onClick: () => go(`${BASE}/${e.id}/design`) };
+        if (!canUpdate) return base;
+        if (!isEditable(e)) return { ...base, secondary: design };
         if (e.status === "DRAFT") {
           return {
             ...base,
@@ -394,12 +403,13 @@ function EventsView({ organizationId }: { organizationId: string }) {
               onClick: () => setPublishTarget(e),
             },
             secondary: edit,
-            menu: [cancelItem],
+            menu: [design, cancelItem],
           };
         }
         return {
           ...base,
           primary: edit,
+          secondary: design,
           menu: [
             { label: "Reschedule", onClick: () => setRescheduleTarget(e) },
             {
