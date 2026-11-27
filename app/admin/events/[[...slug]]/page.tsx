@@ -255,6 +255,7 @@ function EventsView({ organizationId }: { organizationId: string }) {
         key={existing?.id ?? "new"}
         event={existing}
         timeZone={existing?.timezone ?? orgTimeZone}
+        organizationId={organizationId}
         organizationSlug={organization?.slug}
         venues={venues}
         clients={clients}

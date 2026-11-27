@@ -293,8 +293,9 @@ export function SpeakerList({ speakers }: { speakers: Speaker[] }) {
  * with the address and a real "open in maps" link.
  */
 export function VenueMap({ venue, city }: { venue: Venue; city?: City }) {
-  const query = encodeURIComponent(`${venue.name}, ${venue.address}, ${city?.name ?? ""}, Ethiopia`);
   const pin = venue.lat !== undefined && venue.lng !== undefined ? { lat: venue.lat, lng: venue.lng } : null;
+  // A pinned venue opens at its exact spot; otherwise the map is searched for it by name.
+  const query = encodeURIComponent(pin ? `${pin.lat},${pin.lng}` : `${venue.name}, ${venue.address}, ${city?.name ?? ""}, Ethiopia`);
   const center = pin ?? (city ? { lat: city.lat, lng: city.lng } : null);
   return (
     <div className="overflow-hidden rounded-md border border-border bg-surface">

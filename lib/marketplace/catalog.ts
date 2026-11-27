@@ -2,6 +2,7 @@ import { CITIES } from "../../mocks/marketplace/reference";
 import { assetUrl } from "../api-client";
 import { ApiError } from "../api-client";
 import { getPublicEvent, listPublicEvents } from "../api/public-events";
+import { getPublicVenuePin } from "../api/venue-locations";
 import type { PublicEventCard, PublicEventDetail } from "../api/public-events";
 import type { Category, City, CoverPattern, EventItem, EventSummary, Organizer, TicketType, Venue } from "../../types/marketplace";
 import { eventPhase, isFreeEvent, startingPrice } from "./event-state";
@@ -234,6 +235,11 @@ export async function loadEventDetail(organizationSlug: string, eventSlug: strin
     },
   };
   const placed = venueOf(detail);
+  if (placed) {
+    // The exact spot, when staff pinned the venue; without one (or without an answer) the map shows the city.
+    const pin = await getPublicVenuePin(organizationSlug, eventSlug).catch(() => null);
+    if (pin) placed.venue = { ...placed.venue, lat: pin.latitude, lng: pin.longitude };
+  }
   const categoryName = detail.category?.trim() || "Events";
   return { event, organizer: organizerOf(detail), venue: placed?.venue, city: placed?.city, category: { id: event.categoryId, name: categoryName, description: "" } };
 }

@@ -11,8 +11,11 @@ import { ErrorBanner } from "@/components/ui/error-banner";
 import { Field } from "@/components/ui/field";
 import { IconTile } from "@/components/ui/icon-tile";
 import { Input, InputAddon, InputGroup } from "@/components/ui/input";
+import { Note } from "@/components/ui/note";
 import { Pill } from "@/components/ui/pill";
+import type { VenuePin } from "@/lib/api/venue-locations";
 import type { Venue, VenueInput } from "@/lib/api/venues";
+import { VenuePinPicker } from "./venue-pin";
 
 interface Values {
   name: string;
@@ -74,13 +77,17 @@ function PreviewLine({ icon, value, empty }: { icon: ReactNode; value: string; e
 interface VenueFormProps {
   /** The venue being edited. Leave out to create one. */
   venue?: Venue;
-  /** Persist. Throw an Error with a message to keep the form open and show it. */
-  onSubmit: (input: VenueInput) => Promise<void>;
+  /** The venue's map pin now. */
+  pin: VenuePin | null;
+  /** False: the server can't keep pins for now, so the map isn't offered. */
+  pinAvailable: boolean;
+  /** Persist. `pin` is left out when it didn't change. Throw an Error with a message to keep the form open and show it. */
+  onSubmit: (input: VenueInput, pin?: VenuePin | null) => Promise<void>;
   onCancel: () => void;
 }
 
 /** Create and edit page for a venue, laid out like the other forms: a live preview on the left, the fields on the right. */
-export function VenueForm({ venue, onSubmit, onCancel }: VenueFormProps) {
+export function VenueForm({ venue, pin: startPin, pinAvailable, onSubmit, onCancel }: VenueFormProps) {
   const editing = Boolean(venue);
   const [start] = useState(() => startValues(venue));
   const [values, setValues] = useState<Values>(start);
@@ -88,7 +95,10 @@ export function VenueForm({ venue, onSubmit, onCancel }: VenueFormProps) {
   const [failure, setFailure] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
-  const dirty = (Object.keys(start) as (keyof Values)[]).some((k) => values[k] !== start[k]);
+  const [pin, setPin] = useState<VenuePin | null>(startPin);
+  const [firstPin] = useState(startPin);
+  const pinChanged = pin?.latitude !== firstPin?.latitude || pin?.longitude !== firstPin?.longitude;
+  const dirty = pinChanged || (Object.keys(start) as (keyof Values)[]).some((k) => values[k] !== start[k]);
 
   function set<K extends keyof Values>(key: K, value: Values[K]) {
     setValues((v) => ({ ...v, [key]: value }));
@@ -103,7 +113,7 @@ export function VenueForm({ venue, onSubmit, onCancel }: VenueFormProps) {
     setFailure(null);
     setSaving(true);
     try {
-      await onSubmit(toInput(values));
+      await onSubmit(toInput(values), pinChanged ? pin : undefined);
     } catch (err) {
       setFailure(err instanceof Error ? err.message : "We couldn't save the venue. Try again.");
       setSaving(false);
@@ -172,10 +182,11 @@ export function VenueForm({ venue, onSubmit, onCancel }: VenueFormProps) {
               <div className="flex flex-col gap-2 border-t border-border pt-4">
                 <PreviewLine icon={<Navigation />} value={values.address.trim()} empty="No street address" />
                 <PreviewLine icon={<Building />} value={place} empty="No city or country" />
+                <PreviewLine icon={<MapPin />} value={pin ? "Pinned on the map" : ""} empty="No map pin" />
               </div>
             </div>
           </Card>
-          <p className="type-body-sm m-0 px-1 text-text-faint">Events show the name and city. Pick it on any event under Venue.</p>
+          <p className="type-body-sm m-0 px-1 text-text-faint">Events show the name and city, and the pin on their map. Pick the venue on any event under Venue.</p>
         </aside>
 
         {/* Right: what it's called, where it is, how big it is. */}
@@ -229,6 +240,14 @@ export function VenueForm({ venue, onSubmit, onCancel }: VenueFormProps) {
                 </div>
               </div>
             </Card>
+          </section>
+
+          <section className="flex flex-col gap-3">
+            <div className="flex flex-col gap-0.5 px-1">
+              <h2 className="type-h3 m-0 text-text">On the map</h2>
+              <p className="type-body-sm m-0 text-text-soft">Optional. Guests see this exact spot on the event page.</p>
+            </div>
+            {pinAvailable ? <VenuePinPicker value={pin} name={values.name} city={values.city} country={values.country} onChange={setPin} /> : <Note className="mt-0">The map pin can&apos;t be saved yet: the server isn&apos;t ready for it. Everything else saves as usual.</Note>}
           </section>
         </div>
       </form>

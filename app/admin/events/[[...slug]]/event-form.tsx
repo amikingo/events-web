@@ -24,6 +24,7 @@ import { DEFAULT_HOLDER_FIELDS } from "@/lib/api/events";
 import type { EventInput, EventVisibility, HolderFieldSetting, HolderFields, RegistrationMode, StaffEvent } from "@/lib/api/events";
 import type { Venue } from "@/lib/api/venues";
 import { formatInZone, isoToZonedLocal, zonedLocalToIso } from "@/lib/timezone";
+import { VenueField } from "./venue-field";
 
 /** What the form holds: times as wall-clock `YYYY-MM-DDTHH:mm` in the event's timezone, numbers as typed. */
 interface Values {
@@ -191,6 +192,8 @@ interface EventFormProps {
   event?: StaffEvent;
   /** The timezone times are typed in: the event's own, or the organization's for a new event. */
   timeZone: string;
+  /** Whose venues a new one is added to. */
+  organizationId: string;
   /** For the web address preview: `events/<organization>/<event>`. */
   organizationSlug?: string;
   venues: Venue[];
@@ -207,7 +210,7 @@ interface EventFormProps {
  * essentials (name, when, where, about) on the right, then the less common settings as a list of options. The form
  * fills in what it can (the end time, the web address) and hides what most people don't need (a sign-up window).
  */
-export function EventForm({ event, timeZone, organizationSlug, venues, clients, onSubmit, onCancel, scheduleLocked = false }: EventFormProps) {
+export function EventForm({ event, timeZone, organizationId, organizationSlug, venues, clients, onSubmit, onCancel, scheduleLocked = false }: EventFormProps) {
   const editing = Boolean(event);
   const slugEditable = !event || event.status === "DRAFT";
   const [start] = useState(() => startValues(event, timeZone));
@@ -216,6 +219,8 @@ export function EventForm({ event, timeZone, organizationSlug, venues, clients, 
   const [failure, setFailure] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
+  // The "New venue" section under the venue field is open.
+  const [addingVenue, setAddingVenue] = useState(false);
   const [signupWindow, setSignupWindow] = useState(() => Boolean(start.opensAt || start.closesAt));
   const [cover, setCover] = useState<File | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -269,6 +274,8 @@ export function EventForm({ event, timeZone, organizationSlug, venues, clients, 
     const next = validate(values, slugEditable);
     setErrors(next);
     if (Object.values(next).some(Boolean)) return;
+    // A half-filled new venue would be lost without a word.
+    if (addingVenue) return setFailure("Finish the new venue first: add it, or cancel it.");
     setFailure(null);
     setSaving(true);
     try {
@@ -418,9 +425,18 @@ export function EventForm({ event, timeZone, organizationSlug, venues, clients, 
                 </p>
               </div>
 
-              <Field label="Venue" htmlFor="ev-venue" hint="Optional. Add new places on the Venues page.">
-                <Select id="ev-venue" options={venueOptions} value={values.venueId} onValueChange={(v) => set("venueId", v)} />
-              </Field>
+              <VenueField
+                organizationId={organizationId}
+                venues={venues}
+                options={venueOptions}
+                value={values.venueId}
+                onChange={(v) => set("venueId", v)}
+                adding={addingVenue}
+                onAddingChange={(adding) => {
+                  setAddingVenue(adding);
+                  setFailure(null);
+                }}
+              />
 
               <Field label="About the event" htmlFor="ev-description" hint="Optional. Shown on the event's public page.">
                 <Textarea id="ev-description" rows={5} value={values.description} onChange={(e) => set("description", e.target.value)} placeholder="What happens, who it's for and what to bring." />

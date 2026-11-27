@@ -12,17 +12,21 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { BuildingIcon, PlusIcon } from "@/components/ui/icons";
 import { RecordHeading, RecordKv, RecordRailCard } from "@/components/ui/record-view";
 import { RecordWorkspace, parseRecordPath, recordPath } from "@/components/ui/record-workspace";
+import { Skeleton } from "@/components/ui/skeleton";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Table } from "@/components/ui/table";
 import type { ColumnDef } from "@/components/ui/table";
 import { toast } from "@/components/ui/toaster";
 import { describeApiError } from "@/lib/api/errors";
+import { removeVenuePin, saveVenuePin } from "@/lib/api/venue-locations";
+import type { VenuePin } from "@/lib/api/venue-locations";
 import { createVenue, getVenue, listVenues, setVenueActive, updateVenue } from "@/lib/api/venues";
 import type { Venue, VenueInput } from "@/lib/api/venues";
 import { MODULE_CODES } from "@/lib/constants/modules";
 import { formatDate, formatNumber } from "@/lib/format";
 import { venueQk } from "@/lib/query-keys";
 import { VenueForm } from "./venue-form";
+import { VenuePinPreview, useVenuePin, venuePinQk } from "./venue-pin";
 
 const BASE = "/admin/venues";
 /** Venues belong to the Events module on the backend: whoever may change events may change venues. */
@@ -115,6 +119,21 @@ function VenuesView({ organizationId }: { organizationId: string }) {
     onError: (error) => toast.error("Couldn't change the venue", { body: describeApiError(error, "venue") }),
   });
 
+  // The edit form starts from the venue's pin, so it is read before the form shows.
+  const editingPin = useVenuePin(organizationId, location.mode === "edit" ? String(location.id) : null);
+
+  /** Saves a changed pin after the venue itself; a failure says so without undoing the venue. */
+  async function savePin(venueId: string, pin: VenuePin | null | undefined) {
+    if (pin === undefined) return;
+    try {
+      if (pin) await saveVenuePin(organizationId, venueId, pin);
+      else await removeVenuePin(organizationId, venueId);
+      queryClient.setQueryData(venuePinQk(organizationId, venueId), { available: true, pin });
+    } catch (error) {
+      toast.error("The venue was saved, but not its map pin", { body: describeApiError(error, "venue") });
+    }
+  }
+
   if (list.isError) {
     return (
       <EmptyState
@@ -144,22 +163,27 @@ function VenuesView({ organizationId }: { organizationId: string }) {
       if (list.isPending || detail.isPending) return null;
       return <EmptyState size="lg" title="This venue doesn't exist" description="It may have been removed. Go back to the list." />;
     }
+    if (editingPin.loading) return <Skeleton shape="block" height={420} />;
     return (
       <VenueForm
         key={existing?.id ?? "new"}
         venue={existing}
+        pin={existing ? editingPin.pin : null}
+        pinAvailable={existing ? editingPin.available : true}
         onCancel={() => go(existing ? `${BASE}/${existing.id}` : BASE)}
-        onSubmit={async (input) => {
+        onSubmit={async (input, pin) => {
           try {
             if (existing) {
               // Send only what changed.
               const changes = Object.fromEntries(Object.entries(input).filter(([key, value]) => value !== existing[key as keyof Venue])) as Partial<VenueInput>;
               const saved = Object.keys(changes).length ? await update.mutateAsync({ id: existing.id, changes }) : existing;
               toast.success("Changes saved");
+              await savePin(saved.id, pin);
               go(`${BASE}/${saved.id}`);
             } else {
               const created = await create.mutateAsync(input);
               toast.success("Venue added");
+              await savePin(created.id, pin);
               go(`${BASE}/${created.id}`);
             }
           } catch (e) {
@@ -285,6 +309,8 @@ function VenuesView({ organizationId }: { organizationId: string }) {
                 { label: "Last changed", value: formatDate(v.updated_at) },
               ]}
             />
+            <RecordHeading>On the map</RecordHeading>
+            <VenuePinPreview organizationId={organizationId} venueId={v.id} name={v.name} />
           </div>
         ),
         rail: (v) => (
