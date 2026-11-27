@@ -485,7 +485,7 @@ function EventsView({ organizationId }: { organizationId: string }) {
                   }
                   actions={
                     can("read", MODULE_CODES.PAYMENTS) ? (
-                      <Button variant="secondary" onClick={() => router.push(`/admin/payments?event_id=${e.id}&kind=EVENT_CANCELLATION`)}>
+                      <Button variant="secondary" onClick={() => router.push(`/admin/payments/cases?event_id=${e.id}&kind=EVENT_CANCELLATION`)}>
                         Open refunds
                       </Button>
                     ) : undefined

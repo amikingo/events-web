@@ -133,7 +133,7 @@ export const eventsService = {
     if (query.city === "online") rows = rows.filter((e) => e.format !== "in-person");
     else if (query.city !== "all") rows = rows.filter((e) => e.cityId === query.city);
     if (query.price === "free") rows = rows.filter((e) => e.isFree);
-    if (query.price === "paid") rows = rows.filter((e) => !e.isFree);
+    if (query.price === "paid") rows = rows.filter((e) => !e.isFree && !e.priceUnknown);
     if (query.organizer !== "all") rows = rows.filter((e) => organizerSlug.get(e.organizerId) === query.organizer);
 
     const scores = new Map<string, number>();
@@ -190,7 +190,7 @@ export const eventsService = {
     const picks = {
       today: live.filter((e) => overlapsDays(e, today, today)).sort(byStart).slice(0, 6),
       weekend: live.filter((e) => overlapsDays(e, sat, sun)).sort(byStart).slice(0, 6),
-      free: live.filter((e) => e.minPrice === 0).sort(byStart).slice(0, 6),
+      free: live.filter((e) => !e.priceUnknown && e.minPrice === 0).sort(byStart).slice(0, 6),
       online: live.filter((e) => e.format !== "in-person").sort(byStart).slice(0, 6),
     };
 

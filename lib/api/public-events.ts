@@ -26,6 +26,8 @@ export interface PublicEventCard {
   cover: { url: string } | null;
   /** Show or hide the sign-up button. */
   registration_open: boolean;
+  /** Active PUBLIC ticket types with their prices. Missing from an older API's catalog: then prices aren't known. */
+  ticket_types?: PublicTicketType[];
 }
 
 export interface PublicEventDetail extends PublicEventCard {

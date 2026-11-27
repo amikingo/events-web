@@ -8,8 +8,9 @@ import type { ReactNode } from "react";
 import { NoOrganization, useOrganizationId } from "@/app/admin/_components/organization-scope";
 import { useModuleAccess } from "@/components/ability-provider";
 import { AmountInput, parseAmount } from "@/components/ui/amount-input";
+import { AlertCard } from "@/components/ui/alert-card";
 import { Button } from "@/components/ui/button";
-import { Card, CardGrid, CardHeader } from "@/components/ui/card";
+import { Card, CardGrid, CardHeader, CardLink } from "@/components/ui/card";
 import { Combobox } from "@/components/ui/combobox";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorBanner } from "@/components/ui/error-banner";
@@ -35,6 +36,7 @@ import { MODULE_CODES } from "@/lib/constants/modules";
 import { formatMomentFull, formatMomentShort } from "@/lib/ethiopian-datetime";
 import { formatPrice } from "@/lib/price";
 import { eventQk, paymentCaseQk } from "@/lib/query-keys";
+import { EventPaymentsPage, PaymentsByEvent } from "./event-payments";
 
 const EVENT_PAGE = { page: 1, pageSize: 100 };
 const PAGE_SIZE = 20;
@@ -58,7 +60,45 @@ const WHAT_TO_DO: Record<PaymentCaseKind, string> = {
   EVENT_CANCELLATION: "The event was cancelled. Refund this order's paid tickets.",
 };
 
-/* ───────────────────────────── the list ───────────────────────────── */
+/* ───────────────────────────── the overview ───────────────────────────── */
+
+/** What each event was paid. Cases have their own page, and are only brought up here when one is open. */
+function PaymentsOverview({ organizationId }: { organizationId: string }) {
+  const router = useRouter();
+  const params = { status: "OPEN" as const, page: 1, pageSize: 1 };
+  const open = useQuery({ queryKey: paymentCaseQk.list(organizationId, params), queryFn: ({ signal }) => listPaymentCases(organizationId, params, signal) });
+  const waiting = open.data?.totalItems ?? 0;
+  const openCases = () => router.push("/admin/payments/cases");
+
+  return (
+    <div className="flex w-full flex-col gap-6">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div className="flex flex-col gap-0.5">
+          <h1 className="type-h1 m-0 text-text">Payments</h1>
+          <p className="type-body m-0 text-text-soft">What each event was paid.</p>
+        </div>
+        <Button variant="secondary" onClick={openCases}>
+          <Receipt className="size-4" />
+          Refunds and problems
+        </Button>
+      </div>
+
+      {waiting > 0 && (
+        <AlertCard
+          tone="warning"
+          title={waiting === 1 ? "1 payment needs you" : `${waiting} payments need you`}
+          body="Move the money in Cheche Pay, then record what you did."
+          actions={<CardLink onClick={openCases}>Review</CardLink>}
+        />
+      )}
+      {open.isError && <ErrorBanner>We couldn&apos;t check for refunds and problems. Open them to try again.</ErrorBanner>}
+
+      <PaymentsByEvent organizationId={organizationId} />
+    </div>
+  );
+}
+
+/* ───────────────────────────── the cases ───────────────────────────── */
 
 function CasesList({ organizationId }: { organizationId: string }) {
   const router = useRouter();
@@ -107,9 +147,15 @@ function CasesList({ organizationId }: { organizationId: string }) {
 
   return (
     <div className="flex w-full flex-col gap-6">
-      <div className="flex flex-col gap-0.5">
-        <h1 className="type-h1 m-0 text-text">Payments</h1>
-        <p className="type-body m-0 text-text-soft">Refunds and payment problems. Move the money in Cheche Pay, then record it here.</p>
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div className="flex flex-col gap-0.5">
+          <h1 className="type-h1 m-0 text-text">Refunds and problems</h1>
+          <p className="type-body m-0 text-text-soft">Move the money in Cheche Pay, then record it here.</p>
+        </div>
+        <Button variant="secondary" onClick={() => router.push("/admin/payments")}>
+          <ArrowLeft className="size-4" />
+          Back to payments
+        </Button>
       </div>
 
       {list.isError ? (
@@ -315,9 +361,9 @@ function CaseDetail({ organizationId, caseId }: { organizationId: string; caseId
     enabled: !!eventId,
   });
   const back = (
-    <Button variant="secondary" onClick={() => router.push("/admin/payments")}>
+    <Button variant="secondary" onClick={() => router.push("/admin/payments/cases")}>
       <ArrowLeft className="size-4" />
-      Back to payments
+      Back to cases
     </Button>
   );
 
@@ -457,12 +503,16 @@ function CaseDetail({ organizationId, caseId }: { organizationId: string; caseId
 function PaymentsScreen() {
   const organizationId = useOrganizationId();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   if (organizationId === undefined) return null;
   if (organizationId === null) return <NoOrganization what="Payments" />;
-  // /admin/payments → the list; /admin/payments/{caseId} → one case.
-  const [caseId] = pathname.replace(/^\/admin\/payments\/?/, "").split("/").filter(Boolean);
+  // /admin/payments → the overview; …/events/{eventId} → one event; …/cases → the cases; …/{caseId} → one case.
+  const [caseId, eventId] = pathname.replace(/^\/admin\/payments\/?/, "").split("/").filter(Boolean);
+  if (caseId === "events" && eventId) return <EventPaymentsPage key={eventId} organizationId={organizationId} eventId={eventId} />;
+  // A filtered address is a link to the cases (older links point at /admin/payments with these).
+  if (caseId === "cases" || (!caseId && (searchParams.has("event_id") || searchParams.has("kind")))) return <CasesList organizationId={organizationId} />;
   if (caseId) return <CaseDetail key={caseId} organizationId={organizationId} caseId={caseId} />;
-  return <CasesList organizationId={organizationId} />;
+  return <PaymentsOverview organizationId={organizationId} />;
 }
 
 export default function PaymentsPage() {

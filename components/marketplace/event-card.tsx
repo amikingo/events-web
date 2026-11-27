@@ -15,7 +15,8 @@ import { EventStatusBadge } from "./event-status-badge";
  * tile is one link (the title's link stretches over it), so there is a single tab stop per event.
  */
 
-export function priceLabel(e: Pick<EventSummary, "isFree" | "minPrice" | "ticketTypes">): string {
+export function priceLabel(e: Pick<EventSummary, "isFree" | "minPrice" | "ticketTypes" | "priceUnknown">): string {
+  if (e.priceUnknown) return "See details";
   if (e.isFree) return "Free";
   if (e.minPrice === 0) return "Free · paid options";
   return e.ticketTypes.length > 1 ? `From ${formatCurrency(e.minPrice)}` : formatCurrency(e.minPrice);

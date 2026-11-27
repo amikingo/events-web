@@ -159,7 +159,7 @@ export function CancelEventDialog({ event, open, onClose }: { event: StaffEvent;
       onClose();
       toast.success("Event cancelled", {
         body: "Buyers are being texted. Refunds for paid orders are waiting under Payments.",
-        actions: [{ label: "Open refunds", onClick: () => router.push(`/admin/payments?event_id=${event.id}&kind=EVENT_CANCELLATION`) }],
+        actions: [{ label: "Open refunds", onClick: () => router.push(`/admin/payments/cases?event_id=${event.id}&kind=EVENT_CANCELLATION`) }],
       });
     },
     onError: (error) => {

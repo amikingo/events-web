@@ -258,7 +258,7 @@ export function getDomainLabel(moduleId: string, defaultLabel: string, domainId:
 export const COMMAND_PALETTE_ITEMS: SearchCommandItem[] = [
   // Primary
   { id: "/admin/dashboard", moduleId: "dashboard", title: "Dashboard: live events, sales and refunds", group: "Navigation" },
-  { id: "/admin/payments", moduleId: "payments", title: "Payments: refunds and payment problems", group: "Navigation" },
+  { id: "/admin/payments", moduleId: "payments", title: "Payments: sales by event and refunds", group: "Navigation" },
   // Platform & Settings
   { id: "/admin/users", moduleId: "users", title: "Users", group: "Navigation" },
   { id: "/admin/users/new", moduleId: "users", title: "Add a user", group: "Actions" },

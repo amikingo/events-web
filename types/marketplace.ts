@@ -145,6 +145,8 @@ export interface EventItem {
   lifecycleNote?: string;
   /** Changes the organizer made after publishing ("Venue changed"). Newest first. */
   updates: EventUpdate[];
+  /** True when `ticketTypes` is a stand-in and its price means nothing. */
+  priceUnknown?: boolean;
   ticketTypes: TicketType[];
   speakers: Speaker[];
   agenda: AgendaDay[];
@@ -216,6 +218,8 @@ export interface EventSummary {
   timezone?: string;
   minPrice: number;
   isFree: boolean;
+  /** The price isn't known: show neither a figure nor "Free". */
+  priceUnknown?: boolean;
   ticketTypes: TicketType[];
   trendingScore: number;
   featured: boolean;

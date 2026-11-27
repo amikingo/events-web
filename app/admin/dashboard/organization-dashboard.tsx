@@ -101,7 +101,7 @@ export function OrganizationDashboard({ organizationId, organizationName, onPlat
     canGuests && { title: "Guests", subtitle: "Everyone who registered", href: "/admin/guests", icon: <Users /> },
     canGuests && { title: "Orders", subtitle: "Tickets bought and issued", href: "/admin/orders", icon: <Receipt /> },
     can("update", MODULE_CODES.REGISTRATIONS) && { title: "Door", subtitle: "Scan tickets as guests arrive", href: "/admin/door", icon: <DoorOpen /> },
-    canPayments && { title: "Payments", subtitle: "Refunds and payment problems", href: "/admin/payments", icon: <Banknote /> },
+    canPayments && { title: "Payments", subtitle: "Sales by event and refunds", href: "/admin/payments", icon: <Banknote /> },
     canEvents && { title: "Venues", subtitle: "Where events happen", href: "/admin/venues", icon: <MapPin /> },
     { title: "My profile", subtitle: "Your name and password", href: "/admin/settings", icon: <UserRound /> },
   ].filter((s): s is { title: string; subtitle: string; href: string; icon: React.JSX.Element } => Boolean(s));
@@ -215,7 +215,7 @@ export function OrganizationDashboard({ organizationId, organizationName, onPlat
                 <ListCard
                   title="Refunds waiting"
                   subtitle="Move the money in Cheche Pay, then record it."
-                  action={<CardLink onClick={() => router.push("/admin/payments")}>Open payments</CardLink>}
+                  action={<CardLink onClick={() => router.push("/admin/payments/cases")}>Open cases</CardLink>}
                   rows={(cases.data?.data ?? []).map((c) => ({
                     leading: (
                       <IconTile tone="warning" size="sm">

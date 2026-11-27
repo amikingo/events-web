@@ -8,7 +8,7 @@ import { eventPhase, isFreeEvent, startingPrice } from "./event-state";
 
 /**
  * The marketplace catalog, built from the public API (no login). It has the same shape the screens already read, so the
- * pages and components don't know the data is real. Where the API has nothing to say (prices, followers, an agenda), the
+ * pages and components don't know the data is real. Where the API has nothing to say (followers, an agenda), the
  * field is left empty and the screen hides that block instead of showing an invented value.
  *
  * An event's `slug` here is `<organization slug>/<event slug>`: the API needs both to find an event, and with this the
@@ -99,6 +99,26 @@ function registrationTicket(startsAt: string, endsAt: string, open: boolean, ope
   };
 }
 
+/**
+ * The tickets with their prices. Without any (an older API, or an event with nothing on public sale) one stand-in
+ * keeps the availability logic working, and the price is marked unknown so no screen calls the event free.
+ * Prices are shown only (never added up here), so the marketplace's numeric price is set from the API's string.
+ */
+function ticketsOf(
+  card: Pick<PublicEventCard, "ticket_types" | "registration_open">,
+  startsAt: string,
+  endsAt: string,
+  opensAt: string | null,
+  closesAt: string | null,
+): Pick<EventItem, "ticketTypes" | "priceUnknown"> {
+  const known = (card.ticket_types ?? []).map((t) => ({
+    ...registrationTicket(startsAt, endsAt, card.registration_open, opensAt, closesAt, t.name, t.code),
+    price: t.is_free ? 0 : Number(t.price),
+  }));
+  if (known.length) return { ticketTypes: known, priceUnknown: false };
+  return { ticketTypes: [registrationTicket(startsAt, endsAt, card.registration_open, opensAt, closesAt)], priceUnknown: true };
+}
+
 function eventFromCard(card: PublicEventCard): EventItem {
   const startsAt = card.starts_at ?? new Date().toISOString();
   const endsAt = card.ends_at ?? startsAt;
@@ -119,7 +139,7 @@ function eventFromCard(card: PublicEventCard): EventItem {
     endsAt,
     lifecycle: card.display_status === "CANCELLED" ? "cancelled" : "published",
     updates: [],
-    ticketTypes: [registrationTicket(startsAt, endsAt, card.registration_open, null, null)],
+    ...ticketsOf(card, startsAt, endsAt, null, null),
     speakers: [],
     agenda: [],
     attendeeQuestions: [],
@@ -195,16 +215,11 @@ export async function loadEventDetail(organizationSlug: string, eventSlug: strin
   const base = eventFromCard(detail);
   const startsAt = base.startsAt;
   const endsAt = base.endsAt;
-  // Prices are shown only (never added up here), so the marketplace's numeric price is set from the API's string.
-  const tickets = detail.ticket_types.map((t) => ({
-    ...registrationTicket(startsAt, endsAt, detail.registration_open, detail.registration_opens_at, detail.registration_closes_at, t.name, t.code),
-    price: t.is_free ? 0 : Number(t.price),
-  }));
   const event: EventItem = {
     ...base,
     doorsOpenAt: detail.doors_open_at ?? undefined,
     description: (detail.description ?? "").split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean),
-    ticketTypes: tickets.length ? tickets : base.ticketTypes,
+    ...ticketsOf(detail, startsAt, endsAt, detail.registration_opens_at, detail.registration_closes_at),
     registration: {
       open: detail.registration_open,
       opensAt: detail.registration_opens_at,
@@ -254,7 +269,8 @@ export function toSummary(e: EventItem, c: Catalog): EventSummary {
     coverUrl: e.coverUrl,
     timezone: e.timezone,
     minPrice: startingPrice(e.ticketTypes, now),
-    isFree: isFreeEvent(e.ticketTypes),
+    isFree: !e.priceUnknown && isFreeEvent(e.ticketTypes),
+    priceUnknown: e.priceUnknown,
     ticketTypes: e.ticketTypes,
     trendingScore: e.trendingScore,
     featured: e.featured,
