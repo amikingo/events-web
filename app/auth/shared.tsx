@@ -8,7 +8,10 @@ import type { Step } from "@/app/auth/steps";
 export interface AuthChallenge {
   /** Ethiopian E.164 mobile (`+2519...`). */
   mobile: string;
-  purpose: "sign-in" | "sign-up";
+  /** `staff-reset`: a team member resetting their password (Phase 10); `staff-sign-in`: back to team sign-in after it. */
+  purpose: "sign-in" | "sign-up" | "staff-reset" | "staff-sign-in";
+  /** The API's own words after sending a reset code ("If this mobile has staff access, a code has been sent to it."). */
+  message?: string;
   /** Held only in component state between sign-up and confirming the code. */
   password?: string;
   next?: string;

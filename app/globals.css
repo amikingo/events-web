@@ -171,3 +171,104 @@
   border: 0;
   filter: drop-shadow(0 3px 4px color-mix(in srgb, var(--color-text) 35%, transparent));
 }
+
+/*
+ * Bklit UI charts (components/bklit, installed from the @bklit registry). Its variables point at our tokens instead of
+ * its own palette, so the charts use the brand colours and switch with light and dark like everything else. Bklit also
+ * reads a few shadcn names (--foreground, --popover…); they're mapped here too, for its tooltips and labels only.
+ */
+@theme inline {
+  --color-chart-line-primary: var(--chart-line-primary);
+  --color-chart-line-secondary: var(--chart-line-secondary);
+  --color-chart-brush-border: var(--chart-brush-border);
+  --color-chart-tooltip-background: var(--chart-tooltip-background);
+  --color-chart-tooltip-foreground: var(--chart-tooltip-foreground);
+  --color-chart-tooltip-muted: var(--chart-tooltip-muted);
+  --color-chart-scale-01: var(--chart-scale-01);
+  --color-chart-scale-02: var(--chart-scale-02);
+  --color-chart-scale-03: var(--chart-scale-03);
+  --color-chart-scale-04: var(--chart-scale-04);
+  --color-chart-scale-05: var(--chart-scale-05);
+  --color-chart-scale-mix: var(--chart-scale-mix);
+  --color-chart-scale-pattern-color: var(--chart-scale-pattern-color);
+  --color-chart-segment-line: var(--chart-segment-line);
+  --color-chart-segment-background: var(--chart-segment-background);
+  --color-chart-marker-badge-foreground: var(--chart-marker-badge-foreground);
+  --color-chart-marker-badge-background: var(--chart-marker-badge-background);
+  --color-chart-indicator-color: var(--chart-indicator-color);
+  --color-chart-indicator-secondary-color: var(--chart-indicator-secondary-color);
+  --color-chart-label: var(--chart-label);
+  --color-chart-marker-foreground: var(--chart-marker-foreground);
+  --color-chart-marker-border: var(--chart-marker-border);
+  --color-chart-marker-background: var(--chart-marker-background);
+  --color-chart-grid: var(--chart-grid);
+  --color-chart-crosshair: var(--chart-crosshair);
+  --color-chart-foreground: var(--chart-foreground);
+  --color-chart-foreground-muted: var(--chart-foreground-muted);
+  --color-chart-background: var(--chart-background);
+  --color-chart-negative: var(--chart-negative);
+  --color-chart-positive: var(--chart-positive);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-foreground: var(--color-text);
+  --color-muted-foreground: var(--color-text-soft);
+  --color-background: var(--color-surface);
+}
+
+:root {
+  /* The shadcn names Bklit reads, as our tokens. */
+  --foreground: var(--color-text);
+  --background: var(--color-surface);
+  --muted-foreground: var(--color-text-soft);
+  --popover: var(--color-surface);
+  --popover-foreground: var(--color-text);
+  --radius-xl: var(--radius-lg);
+  /* Ring tracks, radar grids and funnel bands read these: without them they fall back to black. */
+  --border: var(--color-border);
+  --color-muted: var(--color-surface-2);
+  --legend: var(--color-surface);
+  --legend-foreground: var(--color-text);
+  --legend-muted: var(--color-surface-2);
+  --legend-muted-foreground: var(--color-text-soft);
+  --legend-track: var(--color-surface-2);
+
+  /* Series: brand pink, purple, green, amber, wine (all tokens), so several series stay apart at a glance. */
+  --chart-1: var(--color-accent);
+  --chart-2: var(--color-cbe);
+  --chart-3: var(--color-success);
+  --chart-4: var(--color-warning);
+  --chart-5: var(--color-accent-deep);
+  --chart-positive: var(--color-success);
+  --chart-negative: var(--color-danger);
+  --chart-background: var(--color-surface);
+  --chart-foreground: var(--color-text);
+  --chart-foreground-muted: var(--color-text-soft);
+  --chart-line-primary: var(--chart-1);
+  --chart-line-secondary: var(--chart-2);
+  --chart-crosshair: var(--color-accent);
+  --chart-grid: var(--color-border);
+  --chart-brush-border: var(--chart-grid);
+  --chart-tooltip-background: var(--color-surface);
+  --chart-tooltip-foreground: var(--color-text);
+  --chart-tooltip-muted: var(--color-text-soft);
+  --chart-marker-background: var(--color-surface-2);
+  --chart-marker-border: var(--color-border-strong);
+  --chart-marker-foreground: var(--color-text);
+  --chart-label: var(--color-text-faint);
+  --chart-scale-mix: var(--color-surface);
+  --chart-scale-01: var(--color-surface-2);
+  --chart-scale-02: color-mix(in oklab, var(--chart-1) 35%, var(--chart-scale-mix));
+  --chart-scale-03: color-mix(in oklab, var(--chart-1) 55%, var(--chart-scale-mix));
+  --chart-scale-04: color-mix(in oklab, var(--chart-1) 78%, var(--chart-scale-mix));
+  --chart-scale-05: var(--chart-1);
+  --chart-scale-pattern-color: var(--color-surface);
+  --chart-indicator-color: var(--color-text);
+  --chart-indicator-secondary-color: var(--color-surface-2);
+  --chart-marker-badge-background: var(--color-text);
+  --chart-marker-badge-foreground: var(--color-surface);
+  --chart-segment-background: color-mix(in oklab, var(--color-text) 6%, transparent);
+  --chart-segment-line: color-mix(in oklab, var(--color-text) 25%, transparent);
+}

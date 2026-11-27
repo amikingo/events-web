@@ -43,10 +43,26 @@ export interface NewStaffAccountInput {
   password: string;
 }
 
+/** Phase 10: what an admin may change about a staff member. Send only what changed; "" or null clears an optional field. */
 export interface StaffProfileUpdateInput {
   firstname?: string;
   middlename?: string | null;
   lastname?: string;
+  email?: string | null;
+  sex?: "MALE" | "FEMALE" | null;
+  /** `YYYY-MM-DD`, a real past date. */
+  date_of_birth?: string | null;
+}
+
+/** Phase 10: a staff member's full account details (`GET …/profile`). The mobile can't be changed. */
+export interface StaffAccountDetails {
+  firstname: string | null;
+  middlename: string | null;
+  lastname: string | null;
+  mobile: string | null;
+  email: string | null;
+  sex: "MALE" | "FEMALE" | null;
+  date_of_birth: string | null;
 }
 
 export interface StaffAssignmentInput {
@@ -105,7 +121,12 @@ export async function assignStaff(
   return { assignment: data, roleGiven: status === 201, accountCreated: Boolean(data.account_created) };
 }
 
-/** Names only: never changes mobile, email, password, or status. `409 central_auth_refused` when refused. */
+/** Phase 10: the details behind an assignment (Staff Assignments › view). */
+export function getStaffAccountDetails(organizationId: string, assignmentId: string, signal?: AbortSignal): Promise<StaffAccountDetails> {
+  return apiRequest<StaffAccountDetails>(`${base(organizationId)}/staff-assignments/${assignmentId}/profile`, { signal });
+}
+
+/** Names, email, sex and date of birth; never the mobile, status, PIN or password. `409 central_auth_refused` when refused. */
 export function updateStaffProfile(organizationId: string, assignmentId: string, changes: StaffProfileUpdateInput): Promise<StaffAssignment> {
   return apiRequest<StaffAssignment>(`${base(organizationId)}/staff-assignments/${assignmentId}/profile`, {
     method: "PATCH",

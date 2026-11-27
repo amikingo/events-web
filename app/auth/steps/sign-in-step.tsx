@@ -5,6 +5,7 @@ import { useId, useState } from "react";
 import type { FormEvent } from "react";
 import { MARKETPLACE } from "@/lib/marketplace/config";
 import { groupPhone, phoneDigits, validatePhone } from "@/lib/marketplace/validation";
+import { SMS_CODE_LENGTH } from "@/lib/constants/sms-code";
 import { ApiError } from "@/lib/api-client";
 import { guestAuthMessage } from "@/lib/api/errors";
 import { attendeeAuth } from "@/app/auth/attendee/attendee-auth-service";
@@ -29,7 +30,8 @@ type Mode = "code" | "password" | "team";
  */
 export function SignInStep({ next, go, challenge, setChallenge }: StepProps) {
   const router = useRouter();
-  const [mode, setMode] = useState<Mode>("code");
+  // Back from a staff password reset: open on team sign-in, with the mobile filled in.
+  const [mode, setMode] = useState<Mode>(() => (challenge?.purpose === "staff-sign-in" ? "team" : "code"));
   // Filled in when sign-up found an existing account and sent the person here.
   const [mobile, setMobile] = useState(() => (challenge?.mobile ? groupPhone(challenge.mobile) : ""));
   const [password, setPassword] = useState("");
@@ -135,7 +137,16 @@ export function SignInStep({ next, go, challenge, setChallenge }: StepProps) {
           </Field>
           <div className="flex items-center justify-between type-body-sm">
             <Checkbox checked={rememberMe} onCheckedChange={setRememberMe} label="Remember this device" />
-            <StepLink onClick={() => go("forgot")}>Forgot password?</StepLink>
+            <StepLink
+              onClick={() => {
+                // Team passwords reset by SMS code (Phase 10); the typed mobile rides along.
+                const digits = phoneDigits(mobile);
+                setChallenge({ mobile: digits.length === 9 ? `+251${digits}` : "", purpose: "staff-reset" });
+                go("forgot");
+              }}
+            >
+              Forgot password?
+            </StepLink>
           </div>
           <Button type="submit" loading={loading} loadingLabel="Signing in" className="w-full">
             Sign in
@@ -217,7 +228,7 @@ export function SignInStep({ next, go, challenge, setChallenge }: StepProps) {
             )}
           </ErrorBanner>
         )}
-        <Field label="Mobile number" htmlFor={mobileId} required error={errors.mobile} hint="We'll text a six-digit code to confirm it's you.">
+        <Field label="Mobile number" htmlFor={mobileId} required error={errors.mobile} hint={`We'll text a ${SMS_CODE_LENGTH}-digit code to confirm it's you.`}>
           <PhoneInput id={mobileId} autoComplete="tel-national" value={mobile} onValueChange={setMobile} error={!!errors.mobile} autoFocus />
         </Field>
         <Button type="submit" loading={loading} loadingLabel="Sending code" className="w-full">

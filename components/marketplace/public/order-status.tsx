@@ -20,6 +20,7 @@ import { getPublicEvent } from "@/lib/api/public-events";
 import type { PublicEventDetail } from "@/lib/api/public-events";
 import { formatMomentFull } from "@/lib/ethiopian-datetime";
 import { readOrderToken } from "@/lib/order-tokens";
+import { wasPriceChanged } from "@/lib/price-change";
 import { formatPrice, isFreePrice } from "@/lib/price";
 
 /** How long to wait between looks at an order that's waiting for payment. */
@@ -97,6 +98,12 @@ export function OrderStatusView({ reference }: { reference: string }) {
     noSubscription,
     () => readOrderToken(reference),
     () => undefined,
+  );
+  // Set by the checkout when this order's total differs from what its page showed.
+  const priceChanged = useSyncExternalStore(
+    noSubscription,
+    () => wasPriceChanged(reference),
+    () => false,
   );
   const [order, setOrder] = useState<PublicOrder | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -284,7 +291,10 @@ export function OrderStatusView({ reference }: { reference: string }) {
               <div className="flex items-center justify-between gap-3 border-b border-dashed border-border px-4 py-3">
                 <div className="flex min-w-0 items-center gap-2">
                   <Ticket className="size-4 flex-none text-accent-text" />
-                  <span className="type-body-sm truncate font-medium text-text">{t.ticket_type.name}</span>
+                  <span className="type-body-sm truncate font-medium text-text">
+                    {t.ticket_type.name}
+                    {!isFreePrice(t.price.amount) && ` · ${formatPrice(t.price.amount, t.price.currency)}`}
+                  </span>
                 </div>
                 <span className="type-body-sm text-text-faint">
                   Ticket {i + 1} of {order.tickets.length}
@@ -348,6 +358,20 @@ export function OrderStatusView({ reference }: { reference: string }) {
             </div>
             <p className="m-0 type-h3 text-text">{formatPrice(order.total_amount, order.currency)}</p>
           </div>
+          {/* Each ticket's price as the order fixed it. */}
+          <ul className="m-0 flex list-none flex-col divide-y divide-border border-t border-border p-0 pt-1">
+            {order.tickets.map((t, i) => (
+              <li key={`${t.ticket_type.code}-${i}`} className="flex items-center justify-between gap-3 py-2">
+                <span className="type-body-sm min-w-0 truncate text-text-soft">{t.ticket_type.name}</span>
+                <span className="type-body-sm flex-none tabular-nums text-text">{formatPrice(t.price.amount, t.price.currency)}</span>
+              </li>
+            ))}
+          </ul>
+          {pending && priceChanged && (
+            <p className="m-0 rounded-md bg-surface-2 px-3 py-2.5 type-body-sm text-text">
+              The price changed while you were choosing. This order&apos;s total is {formatPrice(order.total_amount, order.currency)}.
+            </p>
+          )}
           {pending && (
             <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
               <p className="m-0 flex items-center gap-2 type-body text-text-soft">

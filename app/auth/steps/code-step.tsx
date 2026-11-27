@@ -10,7 +10,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ClockIcon } from "@/components/ui/icons";
 import { toast } from "@/components/ui/toaster";
 
-/** Enter the six-digit SMS code for guest sign-in or sign-up confirmation. */
+/** Enter the SMS code for guest sign-in or sign-up confirmation. */
 export function CodeStep({ go, challenge, setChallenge }: StepProps) {
   const router = useRouter();
 

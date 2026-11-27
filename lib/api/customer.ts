@@ -170,6 +170,16 @@ export async function getCurrentCustomer(signal?: AbortSignal): Promise<Customer
   return parseCustomerProfile(await apiRequest<unknown>("/v1/auth/customer/me", { signal }));
 }
 
+/**
+ * Phase 10: the guest's own names (`PUT /v1/auth/customer/profile`, `middlename: ""` clears it). Then the session is
+ * refreshed, so the token carries the new names everywhere.
+ */
+export async function updateCustomerProfile(input: { firstname: string; middlename: string; lastname: string }): Promise<CustomerProfile> {
+  const profile = parseCustomerProfile(await apiRequest<unknown>("/v1/auth/customer/profile", { method: "PUT", body: input }));
+  await refreshCustomer().catch(() => undefined); // The names are saved either way; the next refresh brings them.
+  return profile;
+}
+
 export function listMyTickets(signal?: AbortSignal): Promise<MyTicket[]> {
   return apiRequest<MyTicket[]>("/v1/customer/registrations", { signal });
 }

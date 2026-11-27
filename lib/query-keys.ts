@@ -84,6 +84,8 @@ export const registrationQk = {
   all: (organizationId: string, eventId: string) => ["registrations", organizationId, eventId] as const,
   list: (organizationId: string, eventId: string, params: RegistrationListParams) => ["registrations", organizationId, eventId, "list", params] as const,
   summary: (organizationId: string, eventId: string) => ["registrations", organizationId, eventId, "summary"] as const,
+  /** Every confirmed ticket of one event, for the dashboard's sales charts. */
+  report: (organizationId: string, eventId: string) => ["registrations", organizationId, eventId, "report"] as const,
 };
 
 export const roleQk = {
@@ -99,6 +101,7 @@ export const staffQk = {
   list: (organizationId: string, params: StaffListParams) => ["staff", organizationId, "list", params] as const,
   detail: (organizationId: string, assignmentId: string) => ["staff", organizationId, "detail", assignmentId] as const,
   overrides: (organizationId: string, assignmentId: string) => ["staff", organizationId, "overrides", assignmentId] as const,
+  account: (organizationId: string, assignmentId: string) => ["staff", organizationId, "account", assignmentId] as const,
 };
 
 export const roleTemplateQk = {

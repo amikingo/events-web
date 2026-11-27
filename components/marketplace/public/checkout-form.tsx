@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useSession } from "@/app/auth/session";
 import { HolderCard } from "@/components/checkout/holder-card";
@@ -18,14 +18,19 @@ import type { PublicOrder, PublicOrderInput } from "@/lib/api/orders";
 import { MAX_TICKETS_PER_ORDER, emptyHolder, nationalMobile, newIdempotencyKey, orderRefusalMessage, placeOrderIssues, toHolderInput, validateHolder } from "@/lib/checkout";
 import type { HolderDraft, HolderErrors, HolderKey } from "@/lib/checkout";
 import { phoneDigits, validatePhone } from "@/lib/marketplace/validation";
+import { formatMomentShort } from "@/lib/ethiopian-datetime";
 import { saveOrderToken } from "@/lib/order-tokens";
+import { markPriceChanged } from "@/lib/price-change";
 import { formatPrice, fromCents, toCents } from "@/lib/price";
+import { useAtTime } from "@/lib/use-at-time";
 import type { EventRegistration } from "@/types/marketplace";
 
 interface CheckoutFormProps {
   organizationSlug: string;
   eventSlug: string;
   registration: EventRegistration;
+  /** The event's timezone, for "Price changes {time}". */
+  timeZone?: string;
 }
 
 /** The notice the visitor reads before getting tickets, kept short. The API only knows its version. */
@@ -86,7 +91,7 @@ function Confirmation({ order, mobileLabel, signedIn, onMore }: { order: PublicO
  * (unless signed in), and, on a Detailed event, each guest's details. One Idempotency-Key per submission: made when the
  * form opens, kept for a retry after a network failure, renewed after a refusal or a success.
  */
-export function CheckoutForm({ organizationSlug, eventSlug, registration }: CheckoutFormProps) {
+export function CheckoutForm({ organizationSlug, eventSlug, registration, timeZone }: CheckoutFormProps) {
   const router = useRouter();
   const session = useSession();
   const account = session?.kind === "attendee" ? session.account : null;
@@ -104,10 +109,21 @@ export function CheckoutForm({ organizationSlug, eventSlug, registration }: Chec
   const [holderErrors, setHolderErrors] = useState<Record<number, HolderErrors>>({});
   const [failure, setFailure] = useState<string | string[] | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Price changes this form has already reloaded for. */
+  const reloaded = useRef(new Set<string>());
   const [preparing, setPreparing] = useState(false);
   const [done, setDone] = useState<{ order: PublicOrder; mobileLabel: string } | null>(null);
   // One key per submission, made when the form opens. It's never rendered, so server and browser can't disagree.
   const [key, setKey] = useState(newIdempotencyKey);
+  // Phase 11: when a price on this page changes, load the page's prices again.
+  const [priceNote, setPriceNote] = useState(false);
+  useAtTime(
+    types.map((t) => t.priceValidUntil),
+    () => {
+      setPriceNote(true);
+      router.refresh();
+    },
+  );
 
   const total = Object.values(quantities).reduce((sum, q) => sum + q, 0);
   // Shown only: the server works out the real total. Added up in whole cents, never in floating point.
@@ -185,6 +201,15 @@ export function CheckoutForm({ organizationSlug, eventSlug, registration }: Chec
     setErrors(next);
     setHolderErrors(nextHolderErrors);
     if (next.tickets || next.mobile || next.privacy || Object.keys(nextHolderErrors).length > 0) return;
+    // A price changed but the page hasn't loaded the new one yet (a sleeping tab): load it before going on. Once per
+    // change, so a browser clock that runs ahead can't block the form.
+    const overdue = types.find((t) => (quantities[t.code] ?? 0) > 0 && t.priceValidUntil && Date.parse(t.priceValidUntil) <= Date.now() && !reloaded.current.has(t.priceValidUntil));
+    if (overdue?.priceValidUntil) {
+      reloaded.current.add(overdue.priceValidUntil);
+      setPriceNote(true);
+      router.refresh();
+      return;
+    }
 
     const chosen = types.filter((t) => (quantities[t.code] ?? 0) > 0);
     const offsets = chosen.map((_, i) => chosen.slice(0, i).reduce((sum, t) => sum + (quantities[t.code] ?? 0), 0));
@@ -209,6 +234,13 @@ export function CheckoutForm({ organizationSlug, eventSlug, registration }: Chec
       // Keep the token on this browser, so /orders/{reference} opens now and when Cheche Pay sends the buyer back.
       if (order.order_token) saveOrderToken(order.reference, order.order_token);
       if (order.status === "PENDING_PAYMENT") {
+        // The order's total differs from what this page showed (a scheduled price started in between): don't go
+        // straight to payment; the order page says so above its Pay button.
+        if (toCents(order.total_amount) !== totalCents && order.order_token) {
+          markPriceChanged(order.reference);
+          router.push(`/orders/${encodeURIComponent(order.reference)}`);
+          return;
+        }
         await goToPayment(order);
         return;
       }
@@ -281,6 +313,12 @@ export function CheckoutForm({ organizationSlug, eventSlug, registration }: Chec
         </ErrorBanner>
       )}
 
+      {priceNote && (
+        <p className="m-0 rounded-md bg-surface-2 px-3 py-2.5 type-body-sm text-text" role="status">
+          The prices changed. Check them before you continue.
+        </p>
+      )}
+
       <Field label="" error={errors.tickets} hint={purchaseLimit ? `Up to ${cap} per mobile number for this event.` : `Up to ${MAX_TICKETS_PER_ORDER} in one order.`}>
         <ul aria-label="Tickets" className="m-0 flex list-none flex-col divide-y divide-border rounded-md border border-border p-0">
           {types.map((t) => {
@@ -290,6 +328,7 @@ export function CheckoutForm({ organizationSlug, eventSlug, registration }: Chec
                 <div className="flex min-w-0 flex-col">
                   <span className="type-body m-0 font-medium text-text">{t.name}</span>
                   <span className="type-body-sm m-0 text-text-soft">{formatPrice(t.price, t.currency)}</span>
+                  {t.priceValidUntil && <span className="type-body-sm m-0 text-text-faint">Price changes {formatMomentShort(t.priceValidUntil, timeZone)}</span>}
                 </div>
                 <NumberStepper aria-label={`How many ${t.name} tickets`} value={q} min={0} max={q + Math.max(0, cap - total)} onValueChange={(v) => setQuantity(t.code, v)} />
               </li>

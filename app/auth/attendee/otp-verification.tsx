@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { maskPhone } from "@/lib/format";
+import { SMS_CODE_LENGTH } from "@/lib/constants/sms-code";
 import { ApiError } from "@/lib/api-client";
 import { guestAuthMessage } from "@/lib/api/errors";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,7 @@ import { OtpInput, OtpResend } from "@/components/ui/otp-input";
 import { toast } from "@/components/ui/toaster";
 
 /**
- * Six-digit SMS code verification backed by `/v1/auth/customer/*`: enter code → submit to parent verifier, or resend
+ * SMS code verification backed by `/v1/auth/customer/*`: enter code → submit to parent verifier, or resend
  * a fresh SMS code with rate-limit handling.
  */
 export function OTPVerification({
@@ -33,7 +34,7 @@ export function OTPVerification({
   const shown = maskPhone(mobile);
 
   async function verify(value: string) {
-    if (phase === "verifying" || value.length < 4) return;
+    if (phase === "verifying" || value.length < SMS_CODE_LENGTH) return;
     setPhase("verifying");
     setFieldError(undefined);
     setBannerError(null);
@@ -70,7 +71,7 @@ export function OTPVerification({
   return (
     <div className="flex flex-col gap-4">
       <p className="m-0 type-body text-text-soft">
-        Enter the six-digit code we sent to <b className="text-text">{shown}</b>.
+        Enter the {SMS_CODE_LENGTH}-digit code we sent to <b className="text-text">{shown}</b>.
       </p>
       {bannerError && <ErrorBanner>{bannerError}</ErrorBanner>}
       <Field error={fieldError} hint={phase === "verifying" ? "Checking the code…" : undefined}>
@@ -82,6 +83,7 @@ export function OTPVerification({
             if (fieldError) setFieldError(undefined);
             if (bannerError) setBannerError(null);
           }}
+          length={SMS_CODE_LENGTH}
           onComplete={verify}
           status={fieldError && !code ? "error" : "default"}
           start
@@ -93,7 +95,7 @@ export function OTPVerification({
         <OtpResend onResend={handleResend} />
         <Button
           variant="secondary"
-          disabled={code.length < 6 || phase === "resending"}
+          disabled={code.length < SMS_CODE_LENGTH || phase === "resending"}
           loading={phase === "verifying"}
           loadingLabel="Verifying"
           onClick={() => verify(code)}

@@ -37,6 +37,8 @@ export function isModuleCode(code: string): code is ModuleCode {
  * prefix wins. Venues have no menu item of their own but are guarded by EVENTS, as on the backend.
  */
 export const ROUTE_MODULE_MAP: Record<string, ModuleCode> = {
+  // The organization at a glance: anyone who can see events.
+  "/admin/dashboard": MODULE_CODES.EVENTS,
   "/admin/events": MODULE_CODES.EVENTS,
   "/admin/venues": MODULE_CODES.EVENTS,
   "/admin/clients": MODULE_CODES.CUSTOMERS,

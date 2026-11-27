@@ -1,4 +1,5 @@
 import { ApiError } from "@/lib/api-client";
+import { formatPrice, isFreePrice } from "@/lib/price";
 
 /**
  * Guest sign-in and sign-up (Phase 6). Here the API passes auth-cheche's own text on (a refused resend or sign-up,
@@ -14,6 +15,15 @@ export function guestAuthMessage(error: unknown): string {
     if (GUEST_SERVER_TEXT_CODES.has(error.code) || fromAuthCheche) return error.message;
   }
   return describeApiError(error);
+}
+
+/**
+ * A free-only staff path refused because the ticket type costs something right now (Phase 11): the price, and when it
+ * changes. `when` writes the instant in the event's zone.
+ */
+export function paymentRequiredMessage(error: unknown, when: (iso: string) => string): string {
+  const until = error instanceof ApiError ? (error.details as { price_valid_until?: string | null } | undefined)?.price_valid_until : null;
+  return `${describeApiError(error)}${until ? ` The price changes ${when(until)}.` : ""}`;
 }
 
 /**
@@ -59,7 +69,7 @@ export function describeApiError(error: unknown, noun = "item"): string {
     case "conflict":
       return conflictMessage(error.details, noun);
     case "invalid_code":
-      return "That code is wrong or has expired.";
+      return "The code is wrong or has expired.";
     case "account_exists":
       return "You already have a Cheche account. Sign in instead.";
     case "account_not_found":
@@ -73,15 +83,19 @@ export function describeApiError(error: unknown, noun = "item"): string {
     case "central_account_not_found":
       return "This number has no Cheche account yet. Ask them to sign up first, then try again.";
     case "central_auth_refused":
-      return "Cheche accounts didn't accept this change. Try again later.";
+      return "Cheche accounts didn't accept the change. Try again later.";
     case "last_owner_assignment":
       return "The organization needs at least one active Owner. Give the role to someone else first.";
     case "assignment_scope_conflict":
       return "This person already has this role for the whole organization or for a branch. Use one or the other.";
     case "registration_closed":
       return registrationClosedMessage(error.details);
-    case "payment_required":
-      return "This ticket type has a price. It can't be issued here yet.";
+    case "payment_required": {
+      const d = error.details as { price?: string; currency?: string } | undefined;
+      return d?.price && !isFreePrice(d.price)
+        ? `This ticket type costs ${formatPrice(d.price, d.currency ?? "ETB")} right now. Create an order instead.`
+        : "This ticket type has a price. Create an order instead.";
+    }
     case "paid_sales_unavailable":
       return "Paid tickets aren't available for this event yet.";
     case "payment_provider_unavailable":
@@ -152,6 +166,9 @@ export function describeApiError(error: unknown, noun = "item"): string {
       // Phase 9 issue codes with their own words; each also belongs on its field.
       const issues = (error.details as { issues?: { code?: string }[] } | undefined)?.issues ?? [];
       const codes = new Set(issues.map((i) => i.code));
+      if (codes.has("wrong_password")) return "The current password is wrong.";
+      if (codes.has("overlapping_window")) return "This price overlaps another scheduled price.";
+      if (codes.has("invalid_range")) return "The end must be after the start.";
       if (codes.has("refund_decision_required")) return "Choose whether used tickets are refunded.";
       if (codes.has("doors_open_at_reconfirm")) return "Confirm the door time.";
       if (codes.has("schedule_pair_required")) return "Change the start and end together.";

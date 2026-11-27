@@ -27,6 +27,10 @@ import { formatBytes, formatNumber } from "@/lib/format";
 import { PRICE_PATTERN, formatPrice, isFreePrice } from "@/lib/price";
 import { eventQk, organizationQk, registrationQk } from "@/lib/query-keys";
 import { getOrganization } from "@/lib/api/organizations";
+import { formatMomentShort } from "@/lib/ethiopian-datetime";
+import { useAtTime } from "@/lib/use-at-time";
+import { PriceWindowsEditor, checkRows, rowsFrom, sortRows, toWindowsInput } from "./price-windows";
+import type { RowErrors, WindowRow } from "./price-windows";
 
 /** CLOSED and CANCELLED events can't change at all, ticket types and cover included. */
 export const isEditable = (event: StaffEvent) => event.status === "DRAFT" || event.status === "PUBLISHED";
@@ -39,6 +43,9 @@ export function TicketTypesTab({ event, canUpdate }: { event: StaffEvent; canUpd
   const [editing, setEditing] = useState<TicketType | "new" | null>(null);
   const [form, setForm] = useState({ code: "", name: "", capacity: "", price: "", audience: "PUBLIC" as TicketAudience });
   const [errors, setErrors] = useState<{ code?: string; name?: string; capacity?: string; price?: string }>({});
+  // Phase 11: scheduled prices, and each row's problem.
+  const [windows, setWindows] = useState<WindowRow[]>([]);
+  const [rowErrors, setRowErrors] = useState<RowErrors>({});
   const [failure, setFailure] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<TicketType | null>(null);
   const editable = canUpdate && isEditable(event);
@@ -49,6 +56,8 @@ export function TicketTypesTab({ event, canUpdate }: { event: StaffEvent; canUpd
     queryKey: eventQk.tickets(orgId, event.id),
     queryFn: ({ signal }) => listTicketTypes(orgId, event.id, signal),
   });
+  // A scheduled price starts or ends: fetch again, so the list shows what a new order pays now.
+  useAtTime((query.data ?? []).map((t) => t.price_valid_until), () => void query.refetch());
   // Every ticket type carries the organizer's currency; a new event's first type uses the organization's default.
   const currency = query.data?.[0]?.currency ?? organization?.default_currency ?? "ETB";
   const state = { status: query.isPending ? "loading" : query.isError ? "error" : "ready", items: query.data ?? [], error: query.error } as const;
@@ -67,7 +76,20 @@ export function TicketTypesTab({ event, canUpdate }: { event: StaffEvent; canUpd
       toast.success(target === "new" ? "Ticket type added" : "Changes saved");
       setEditing(null);
     },
-    onError: (err) => setFailure(describeApiError(err, "ticket type")),
+    onError: (err, { input }) => {
+      // The API names the row it refused (`body.price_windows.N`): the Nth of the sorted list that was sent.
+      const issues = err instanceof ApiError ? ((err.details as { issues?: { path?: string; code?: string }[] } | undefined)?.issues ?? []) : [];
+      const sent = sortRows(windows);
+      const next: RowErrors = {};
+      for (const issue of issues) {
+        const n = /price_windows\.(\d+)/.exec(issue.path ?? "")?.[1];
+        const row = n !== undefined && input.price_windows ? sent[Number(n)] : undefined;
+        if (row && issue.code === "invalid_range") next[row.key] = { endsAt: "The end must be after the start." };
+        if (row && issue.code === "overlapping_window") next[row.key] = { row: "This price overlaps another scheduled price." };
+      }
+      setRowErrors(next);
+      setFailure(describeApiError(err, "ticket type"));
+    },
   });
   const toggle = useMutation({
     mutationFn: (ticket: TicketType) => setTicketTypeActive(orgId, event.id, ticket.id, !ticket.is_active),
@@ -99,6 +121,8 @@ export function TicketTypesTab({ event, canUpdate }: { event: StaffEvent; canUpd
             audience: target.audience,
           },
     );
+    setWindows(target === "new" ? [] : sortRows(rowsFrom(target.price_windows ?? [], event.timezone)));
+    setRowErrors({});
     setErrors({});
     setFailure(null);
   }
@@ -112,7 +136,9 @@ export function TicketTypesTab({ event, canUpdate }: { event: StaffEvent; canUpd
       price: !form.price.trim() || PRICE_PATTERN.test(form.price.trim()) ? undefined : "Enter an amount like 500 or 500.50, or leave it empty for free.",
     };
     setErrors(next);
-    if (next.code || next.name || next.capacity || next.price || !editing) return;
+    const rows = checkRows(windows);
+    setRowErrors(rows);
+    if (next.code || next.name || next.capacity || next.price || Object.keys(rows).length > 0 || !editing) return;
     setFailure(null);
     save.mutate({
       target: editing,
@@ -123,6 +149,8 @@ export function TicketTypesTab({ event, canUpdate }: { event: StaffEvent; canUpd
         // Sent as the string typed: the API stores it exactly ("500" → "500.00"). Empty means free.
         price: form.price.trim() || "0",
         audience: form.audience,
+        // Always the whole schedule: it replaces the old one, and [] clears it.
+        price_windows: toWindowsInput(windows, event.timezone),
       },
     });
   }
@@ -150,12 +178,17 @@ export function TicketTypesTab({ event, canUpdate }: { event: StaffEvent; canUpd
             rows={state.items.map((t) => ({
               title: t.name,
               meta: (
-                <>
-                  <code>{t.code}</code> · {t.capacity ? `Up to ${formatNumber(t.capacity)}` : "No separate limit"} · {formatPrice(t.price, t.currency)}
-                </>
+                <span className="flex flex-col">
+                  <span>
+                    <code>{t.code}</code> · {t.capacity ? `Up to ${formatNumber(t.capacity)}` : "No separate limit"} · {formatPrice(t.effective_price ?? t.price, t.currency)}
+                  </span>
+                  {t.effective_price !== undefined && t.effective_price !== t.price && <span>Regular {formatPrice(t.price, t.currency)}</span>}
+                  {t.price_valid_until && <span>Changes {formatMomentShort(t.price_valid_until, event.timezone)}</span>}
+                </span>
               ),
               trailing: (
-                <span className="flex items-center gap-2">
+                <span className="flex flex-wrap items-center justify-end gap-2">
+                  {(t.price_windows?.length ?? 0) > 0 && <Pill tone="info">Scheduled</Pill>}
                   {t.audience === "STAFF_ONLY" && <Pill tone="neutral">Staff only</Pill>}
                   <StatusPill kind="account" status={t.is_active ? "active" : "inactive"} />
                   {editable && (
@@ -195,7 +228,7 @@ export function TicketTypesTab({ event, canUpdate }: { event: StaffEvent; canUpd
               </Field>
             </div>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <Field label="Price" htmlFor="tt-price" error={errors.price} hint="Empty or 0 means free.">
+              <Field label="Regular price" htmlFor="tt-price" error={errors.price} hint="Used whenever no scheduled price applies. Empty or 0 means free.">
                 <InputGroup
                   id="tt-price"
                   inputMode="decimal"
@@ -222,6 +255,17 @@ export function TicketTypesTab({ event, canUpdate }: { event: StaffEvent; canUpd
                 ]}
               />
             </Field>
+            <PriceWindowsEditor
+              rows={windows}
+              errors={rowErrors}
+              regularPrice={form.price.trim()}
+              currency={currency}
+              timeZone={event.timezone}
+              onChange={(rows) => {
+                setWindows(rows);
+                setRowErrors({});
+              }}
+            />
             <div className="flex items-center gap-2">
               <Button type="submit" loading={save.isPending} loadingLabel="Saving">
                 {editing === "new" ? "Add ticket type" : "Save changes"}

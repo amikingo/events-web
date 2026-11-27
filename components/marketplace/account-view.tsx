@@ -11,10 +11,14 @@ import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { ErrorBanner } from "@/components/ui/error-banner";
+import { Field } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { CardIcon, LogoutIcon } from "@/components/ui/icons";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ThemeSwitch } from "@/components/ui/theme-switch";
 import { toast } from "@/components/ui/toaster";
+import { describeApiError } from "@/lib/api/errors";
 import { initialsOf } from "./account-menu";
 
 function formatAccountMobile(mobile: string | null | undefined): string {
@@ -29,6 +33,12 @@ export function AccountView() {
   const router = useRouter();
   const [me, setMe] = useState<CustomerProfile | null>(null);
   const [confirmOut, setConfirmOut] = useState(false);
+  // Edit name (Phase 10): first, middle and last, inline in the account card.
+  const [editing, setEditing] = useState(false);
+  const [names, setNames] = useState({ firstname: "", middlename: "", lastname: "" });
+  const [nameErrors, setNameErrors] = useState<{ firstname?: string; lastname?: string }>({});
+  const [nameFailure, setNameFailure] = useState<string | null>(null);
+  const [savingName, setSavingName] = useState(false);
 
   const isGuest = session?.kind === "attendee";
 
@@ -60,6 +70,35 @@ export function AccountView() {
   const profile = me?.id === session.account.id ? me : session.account;
   const fullName = customerFullName(profile);
 
+  function startEditing() {
+    setNames({ firstname: profile.firstname ?? "", middlename: profile.middlename ?? "", lastname: profile.lastname ?? "" });
+    setNameErrors({});
+    setNameFailure(null);
+    setEditing(true);
+  }
+
+  async function saveNames(e: React.FormEvent) {
+    e.preventDefault();
+    const next = {
+      firstname: names.firstname.trim() ? undefined : "Enter your first name.",
+      lastname: names.lastname.trim() ? undefined : "Enter your last name.",
+    };
+    setNameErrors(next);
+    setNameFailure(null);
+    if (next.firstname || next.lastname) return;
+    setSavingName(true);
+    try {
+      const updated = await attendeeAuth.updateNames({ firstname: names.firstname.trim(), middlename: names.middlename.trim(), lastname: names.lastname.trim() });
+      setMe(updated);
+      setEditing(false);
+      toast.success("Name saved");
+    } catch (error) {
+      setNameFailure(describeApiError(error, "person"));
+    } finally {
+      setSavingName(false);
+    }
+  }
+
   return (
     <div className="grid max-w-[840px] gap-6 md:grid-cols-[minmax(0,300px)_minmax(0,1fr)]">
       <Card className="flex flex-col items-start gap-4 self-start">
@@ -83,7 +122,38 @@ export function AccountView() {
       <Card>
         <div className="flex flex-col divide-y divide-border">
           <div className="pb-4">
-            <p className="m-0 type-label text-text-faint">Cheche account</p>
+            <div className="flex items-center justify-between gap-3">
+              <p className="m-0 type-label text-text-faint">Cheche account</p>
+              {!editing && (
+                <Button variant="secondary" onClick={startEditing}>
+                  Edit name
+                </Button>
+              )}
+            </div>
+            {editing ? (
+              <form onSubmit={saveNames} noValidate className="mt-3 flex flex-col gap-4">
+                {nameFailure && <ErrorBanner>{nameFailure}</ErrorBanner>}
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <Field label="First name" htmlFor="acc-first" required error={nameErrors.firstname}>
+                    <Input id="acc-first" autoComplete="given-name" value={names.firstname} error={!!nameErrors.firstname} onChange={(e) => setNames((n) => ({ ...n, firstname: e.target.value }))} autoFocus />
+                  </Field>
+                  <Field label="Middle name" htmlFor="acc-middle" hint="Optional.">
+                    <Input id="acc-middle" autoComplete="additional-name" value={names.middlename} onChange={(e) => setNames((n) => ({ ...n, middlename: e.target.value }))} />
+                  </Field>
+                  <Field label="Last name" htmlFor="acc-last" required error={nameErrors.lastname}>
+                    <Input id="acc-last" autoComplete="family-name" value={names.lastname} error={!!nameErrors.lastname} onChange={(e) => setNames((n) => ({ ...n, lastname: e.target.value }))} />
+                  </Field>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="submit" loading={savingName} loadingLabel="Saving">
+                    Save name
+                  </Button>
+                  <Button type="button" variant="secondary" disabled={savingName} onClick={() => setEditing(false)}>
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            ) : (
             <dl className="m-0 mt-3 grid gap-3 sm:grid-cols-2">
               <div>
                 <dt className="type-body-sm text-text-faint">Name</dt>
@@ -94,6 +164,7 @@ export function AccountView() {
                 <dd className="m-0 mt-0.5 type-body font-medium text-text">{formatAccountMobile(profile.mobile)}</dd>
               </div>
             </dl>
+            )}
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3 py-4">
             <div>

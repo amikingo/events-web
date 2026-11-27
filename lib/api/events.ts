@@ -101,13 +101,28 @@ export interface EventInput {
 /** Who may get a ticket type: anyone on the public page, or only staff issuing tickets. */
 export type TicketAudience = "PUBLIC" | "STAFF_ONLY";
 
+/** A one-off price from `starts_at` (included) to `ends_at` (excluded); no end means until the schedule changes. */
+export interface PriceWindow {
+  id: string;
+  starts_at: string;
+  ends_at: string | null;
+  price: string;
+}
+
 export interface TicketType {
   id: string;
   event_id: string;
   code: string;
   name: string;
-  /** A decimal string, always with two places (`"500.00"`); `"0.00"` is free. Never compute with it as a float. */
+  /** The regular price: a decimal string, always with two places (`"500.00"`); `"0.00"` is free. Used whenever no
+   * scheduled price applies. Never compute with it as a float. */
   price: string;
+  /** Phase 11: scheduled prices, sorted by start. */
+  price_windows: PriceWindow[];
+  /** Phase 11: what a new order pays right now, and when that changes (null: nothing is scheduled to change). */
+  effective_price: string;
+  effective_is_free: boolean;
+  price_valid_until: string | null;
   /** The organizer's currency (`"ETB"`); set by the API, never sent. */
   currency: string;
   audience: TicketAudience;
@@ -126,6 +141,8 @@ export interface TicketTypeInput {
   /** A decimal string such as `"500"` or `"500.50"`; `"0"` is free (the default). */
   price?: string;
   audience?: TicketAudience;
+  /** Phase 11: the whole schedule (it replaces the old one; `[]` clears it, leaving it out keeps it). Up to 20. */
+  price_windows?: { starts_at: string; ends_at?: string; price: string }[];
 }
 
 const base = (organizationId: string) => `/v1/organizations/${organizationId}/events`;

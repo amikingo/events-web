@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowUpRight, Building2, KeyRound, LogOut, Palette, Phone, Repeat, ShieldCheck, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -14,18 +14,30 @@ import { ErrorBanner } from "@/components/ui/error-banner";
 import { Field } from "@/components/ui/field";
 import { IconTile } from "@/components/ui/icon-tile";
 import { Input } from "@/components/ui/input";
-import { Note } from "@/components/ui/note";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Pill } from "@/components/ui/pill";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tab, TabList, TabPanel, Tabs } from "@/components/ui/tabs";
 import { ThemeSwitch } from "@/components/ui/theme-switch";
 import { toast } from "@/components/ui/toaster";
+import { authService } from "@/app/auth/staff/auth-service";
+import { ApiError, currentSession } from "@/lib/api-client";
+import { changeStaffPassword, updateOwnStaffProfile } from "@/lib/api/auth";
 import { describeApiError } from "@/lib/api/errors";
 import { getOrganization } from "@/lib/api/organizations";
-import { updateStaffProfile } from "@/lib/api/staff";
 import { describeAssignment, useAuth } from "@/lib/auth-context";
 import { nationalMobile } from "@/lib/checkout";
 import { MODULE_CODES } from "@/lib/constants/modules";
-import { organizationQk, staffQk } from "@/lib/query-keys";
+import { organizationQk } from "@/lib/query-keys";
+
+/** Which field each API issue belongs to: `body.old_password` → `old_password`. */
+function fieldIssues(error: unknown): Record<string, string> {
+  if (!(error instanceof ApiError)) return {};
+  const issues = (error.details as { issues?: { path?: string; code?: string; message?: string }[] } | undefined)?.issues ?? [];
+  return Object.fromEntries(
+    issues.map((i) => [(i.path ?? "").replace(/^body\./, ""), i.code === "wrong_password" ? "The current password is wrong." : (i.message ?? "Check this field.")]),
+  );
+}
 
 const fullName = (p: { firstname: string | null; middlename: string | null; lastname: string | null } | null) =>
   (p ? [p.firstname, p.middlename, p.lastname].filter(Boolean).join(" ") : "") || "Your name";
@@ -48,46 +60,59 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-/** A section: an icon, a title and one line on the left of its card's header. */
-function Section({ icon, title, subtitle, action, children }: { icon: ReactNode; title: string; subtitle: string; action?: ReactNode; children: ReactNode }) {
+/**
+ * One settings block, as modern account pages lay them out: what it is on the left, the controls on the right, and an
+ * optional footer bar for the hint and the save button.
+ */
+function SettingsBlock({
+  icon,
+  title,
+  description,
+  footer,
+  children,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+  footer?: ReactNode;
+  children: ReactNode;
+}) {
   return (
-    <Card>
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex min-w-0 items-start gap-3">
+    <Card className="overflow-hidden p-0">
+      <div className="grid grid-cols-1 gap-5 p-5 sm:p-6 md:grid-cols-[minmax(0,240px)_minmax(0,1fr)] md:gap-8">
+        <div className="flex items-start gap-3">
           <IconTile tone="charcoal" size="sm">
             {icon}
           </IconTile>
-          <div className="flex min-w-0 flex-col gap-0.5">
+          <div className="flex min-w-0 flex-col gap-1">
             <h2 className="type-h3 m-0 text-text">{title}</h2>
-            <p className="type-body-sm m-0 text-text-soft">{subtitle}</p>
+            <p className="type-body-sm m-0 text-text-soft">{description}</p>
           </div>
         </div>
-        {action && <div className="flex flex-none items-center gap-2">{action}</div>}
+        <div className="min-w-0">{children}</div>
       </div>
-      {children}
+      {footer && <div className="flex flex-col gap-3 border-t border-border bg-surface-2 px-5 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">{footer}</div>}
     </Card>
   );
 }
 
 /**
- * Your settings, from the real session and API only: who you are (your Cheche account), the roles you hold and which
- * one is in use, your organization, how the app looks, and signing out. Names can be changed by someone allowed to
- * manage staff; the mobile and password belong to the Cheche account and are changed there.
+ * My profile and settings, from the real session and API only: your names and password (Phase 10, on your own Cheche
+ * account), the roles you hold and which one is in use, your organization, how the app looks, and signing out. The
+ * mobile is the sign-in and can't change here.
  */
 export default function SettingsPage() {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const { user, assignment, assignments, switchRole, logout } = useAuth();
   const { can } = useModuleAccess();
   const organizationId = assignment?.organizationId ?? null;
 
-  // Names are changed through your own staff assignment, which needs the right to manage staff in your organization.
-  const canEditName = Boolean(organizationId && assignment && can("update", MODULE_CODES.USER_ROLES));
   const [names, setNames] = useState(() => ({ firstname: user?.firstname ?? "", middlename: user?.middlename ?? "", lastname: user?.lastname ?? "" }));
   const [nameErrors, setNameErrors] = useState<{ firstname?: string; lastname?: string }>({});
   const [failure, setFailure] = useState<string | null>(null);
   const [switching, setSwitching] = useState<string | null>(null);
   const [signOutOpen, setSignOutOpen] = useState(false);
+  const [tab, setTab] = useState("profile");
   const namesChanged =
     names.firstname.trim() !== (user?.firstname ?? "") || (names.middlename.trim() || null) !== (user?.middlename ?? null) || names.lastname.trim() !== (user?.lastname ?? "");
 
@@ -97,19 +122,50 @@ export default function SettingsPage() {
     enabled: Boolean(organizationId),
   });
 
+  // Your own names: the API returns a new token, so the header shows the new name at once.
   const saveName = useMutation({
-    mutationFn: () =>
-      updateStaffProfile(organizationId!, assignment!.id, {
-        firstname: names.firstname.trim(),
-        middlename: names.middlename.trim() || null,
-        lastname: names.lastname.trim(),
-      }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: staffQk.all(organizationId!) });
-      toast.success("Name saved", { body: "It shows everywhere after your next sign-in." });
+    mutationFn: () => updateOwnStaffProfile({ firstname: names.firstname.trim(), middlename: names.middlename.trim(), lastname: names.lastname.trim() }),
+    onSuccess: ({ changed }) => {
+      authService.rememberProfileFrom(currentSession());
+      if (changed) toast.success("Name saved");
+      else toast.info("Nothing changed");
     },
-    onError: (error) => setFailure(describeApiError(error, "person")),
+    onError: (error) => {
+      const issues = fieldIssues(error);
+      if (issues.firstname || issues.lastname) setNameErrors({ firstname: issues.firstname, lastname: issues.lastname });
+      else setFailure(describeApiError(error, "person"));
+    },
   });
+
+  // Change password: the confirmation is checked here only; a wrong current password stays on its field.
+  const [pw, setPw] = useState({ current: "", next: "", confirm: "" });
+  const [pwErrors, setPwErrors] = useState<{ current?: string; next?: string; confirm?: string }>({});
+  const [pwFailure, setPwFailure] = useState<string | null>(null);
+  const changePassword = useMutation({
+    mutationFn: () => changeStaffPassword(pw.current, pw.next),
+    onSuccess: () => {
+      setPw({ current: "", next: "", confirm: "" });
+      toast.success("Password changed");
+    },
+    onError: (error) => {
+      const issues = fieldIssues(error);
+      if (issues.old_password || issues.new_password) setPwErrors({ current: issues.old_password, next: issues.new_password });
+      else setPwFailure(error instanceof ApiError && error.code === "rate_limited" ? "Too many tries. Wait a minute and try again." : describeApiError(error));
+    },
+  });
+
+  function submitPassword(e: React.FormEvent) {
+    e.preventDefault();
+    const next = {
+      current: pw.current ? undefined : "Enter your current password.",
+      next: pw.next.length < 8 ? "Use at least 8 characters." : pw.next === pw.current ? "Choose a password different from the current one." : undefined,
+      confirm: pw.confirm === pw.next ? undefined : "The passwords don't match.",
+    };
+    setPwErrors(next);
+    setPwFailure(null);
+    if (next.current || next.next || next.confirm) return;
+    changePassword.mutate();
+  }
 
   function submitName(e: React.FormEvent) {
     e.preventDefault();
@@ -138,88 +194,156 @@ export default function SettingsPage() {
 
   const name = fullName(user);
   const org = organization.data;
+  const typedName = [names.firstname, names.middlename, names.lastname].map((n) => n.trim()).filter(Boolean).join(" ") || name;
 
   return (
-    <div className="flex w-full max-w-6xl flex-col gap-6">
-      <div className="flex flex-col gap-0.5">
-        <h1 className="type-h1 m-0 text-text">Settings</h1>
-        <p className="type-body m-0 text-text-soft">Your account, your roles and how the app looks.</p>
-      </div>
-
-      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)] lg:gap-8">
-        {/* Left: you, at a glance. Stays in view while the page scrolls. */}
-        <aside className="flex flex-col gap-3 lg:sticky lg:top-6">
-          <Card>
-            <div className="flex flex-col gap-4">
-              <div className="flex items-center gap-3">
-                <Avatar initials={initialsOf(name)} size={48} />
-                <div className="flex min-w-0 flex-col gap-1">
-                  <p className="type-h3 m-0 break-words text-text">{name}</p>
-                  {assignment && (
-                    <div>
-                      <Pill tone="neutral" size="sm">
-                        {assignment.role.name}
-                      </Pill>
-                    </div>
-                  )}
-                </div>
+    <div className="grid w-full grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)] xl:gap-8">
+      {/* Left: you, at a glance, staying in view: avatar, name, role, where you work, roles held, and Sign out. */}
+      <aside className="flex flex-col gap-4 lg:sticky lg:top-6">
+        <Card className="overflow-hidden p-0">
+          <div className="h-16 bg-[linear-gradient(120deg,var(--color-accent-soft),var(--color-surface-2))]" aria-hidden="true" />
+          <div className="flex flex-col items-center gap-3 px-5 pb-5 text-center">
+            <div className="-mt-8 rounded-full bg-surface p-1">
+              <Avatar initials={initialsOf(typedName)} size={48} />
+            </div>
+            <div className="flex min-w-0 flex-col items-center gap-1.5">
+              <h1 className="type-h3 m-0 break-words text-text">{typedName}</h1>
+              {assignment && (
+                <Pill tone="neutral" size="sm">
+                  {assignment.role.name}
+                </Pill>
+              )}
+            </div>
+            <div className="flex w-full flex-col gap-2.5 border-t border-border pt-4 text-left">
+              <div className="flex items-center gap-2.5">
+                <Phone className="size-4 flex-none text-text-faint" />
+                <span className="type-body-sm m-0 truncate text-text">{user?.mobile ? nationalMobile(user.mobile) : "No mobile"}</span>
               </div>
-              <div className="flex flex-col gap-2 border-t border-border pt-4">
-                <p className="type-body-sm m-0 flex items-center gap-2 text-text-soft">
-                  <Phone className="size-4 flex-none" />
-                  {user?.mobile ? nationalMobile(user.mobile) : "No mobile"}
-                </p>
-                <p className="type-body-sm m-0 flex items-center gap-2 text-text-soft">
-                  <Building2 className="size-4 flex-none" />
-                  {assignment?.organization?.name ?? "Platform (no organization)"}
-                </p>
+              <div className="flex items-center gap-2.5">
+                <Building2 className="size-4 flex-none text-text-faint" />
+                <span className="type-body-sm m-0 truncate text-text">{assignment?.organization?.name ?? "Platform"}</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <Repeat className="size-4 flex-none text-text-faint" />
+                <span className="type-body-sm m-0 text-text">
+                  {assignments.length} {assignments.length === 1 ? "role" : "roles"}
+                </span>
               </div>
             </div>
-          </Card>
-          <p className="type-body-sm m-0 px-1 text-text-faint">You sign in with your Cheche account, the same one you use across Cheche.</p>
-        </aside>
+            <Button variant="secondary" className="w-full" onClick={() => setSignOutOpen(true)}>
+              <LogOut className="size-4" />
+              Sign out
+            </Button>
+          </div>
+        </Card>
+        <p className="type-body-sm m-0 px-1 text-text-faint">You sign in with your Cheche account, the same one across Cheche.</p>
+      </aside>
 
-        {/* Right: the sections. */}
-        <div className="flex flex-col gap-6">
-          <Section icon={<UserRound />} title="Profile" subtitle={canEditName ? "Your name as staff see it." : "Your name and mobile, from your Cheche account."}>
-            {canEditName ? (
-              <form onSubmit={submitName} noValidate className="flex flex-col gap-4">
+      {/* Right: one area at a time. */}
+      <div className="flex min-w-0 flex-col gap-1">
+        <div className="flex flex-col gap-0.5 pb-3">
+          <h2 className="type-h1 m-0 text-text">My profile</h2>
+          <p className="type-body m-0 text-text-soft">Your name, password, roles and how the app looks.</p>
+        </div>
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabList>
+          <Tab value="profile">Profile</Tab>
+          <Tab value="security">Password</Tab>
+          <Tab value="roles" count={assignments.length > 1 ? assignments.length : undefined}>
+            Roles
+          </Tab>
+          {organizationId && <Tab value="organization">Organization</Tab>}
+          <Tab value="appearance">Appearance</Tab>
+        </TabList>
+
+        <TabPanel value="profile" className="pt-5">
+          <form onSubmit={submitName} noValidate>
+            <SettingsBlock
+              icon={<UserRound />}
+              title="Your name"
+              description="As it shows to everyone, across Cheche."
+              footer={
+                <>
+                  <span className="type-body-sm text-text-soft">The header updates as soon as you save.</span>
+                  <Button type="submit" variant={namesChanged ? undefined : "secondary"} loading={saveName.isPending} loadingLabel="Saving" disabled={!namesChanged}>
+                    Save name
+                  </Button>
+                </>
+              }
+            >
+              <div className="flex flex-col gap-4">
                 {failure && <ErrorBanner>{failure}</ErrorBanner>}
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="First name" htmlFor="st-first" required error={nameErrors.firstname}>
                     <Input id="st-first" autoComplete="given-name" value={names.firstname} error={!!nameErrors.firstname} onChange={(e) => setNames((n) => ({ ...n, firstname: e.target.value }))} />
-                  </Field>
-                  <Field label="Middle name" htmlFor="st-middle" hint="Optional.">
-                    <Input id="st-middle" autoComplete="additional-name" value={names.middlename} onChange={(e) => setNames((n) => ({ ...n, middlename: e.target.value }))} />
                   </Field>
                   <Field label="Last name" htmlFor="st-last" required error={nameErrors.lastname}>
                     <Input id="st-last" autoComplete="family-name" value={names.lastname} error={!!nameErrors.lastname} onChange={(e) => setNames((n) => ({ ...n, lastname: e.target.value }))} />
                   </Field>
+                  <Field label="Middle name" htmlFor="st-middle" hint="Optional.">
+                    <Input id="st-middle" autoComplete="additional-name" value={names.middlename} onChange={(e) => setNames((n) => ({ ...n, middlename: e.target.value }))} />
+                  </Field>
+                  <Field label="Mobile" htmlFor="st-mobile" hint="Your sign-in. It can't be changed here.">
+                    <Input id="st-mobile" value={user?.mobile ? nationalMobile(user.mobile) : "None"} readOnly disabled />
+                  </Field>
                 </div>
-                <dl className="m-0">
-                  <Row label="Mobile">{user?.mobile ? nationalMobile(user.mobile) : "None"} · changed on your Cheche account</Row>
-                </dl>
-                <div>
-                  <Button type="submit" loading={saveName.isPending} loadingLabel="Saving" disabled={!namesChanged}>
-                    Save name
-                  </Button>
-                </div>
-              </form>
-            ) : (
-              <dl className="m-0 flex flex-col divide-y divide-border">
-                <Row label="Name">{name}</Row>
-                <Row label="Mobile">{user?.mobile ? nationalMobile(user.mobile) : "None"}</Row>
-                <Row label="To change them">Ask someone who manages staff in your organization, or change them on your Cheche account.</Row>
-              </dl>
-            )}
-          </Section>
+              </div>
+            </SettingsBlock>
+          </form>
+        </TabPanel>
 
-          <Section icon={<Repeat />} title="Your roles" subtitle={assignments.length > 1 ? "You hold several roles. Switch to work in another." : "The role you work in."}>
-            <ul className="m-0 flex list-none flex-col divide-y divide-border p-0">
+        <TabPanel value="security" className="pt-5">
+          <form onSubmit={submitPassword} noValidate>
+            <SettingsBlock
+              icon={<KeyRound />}
+              title="Password"
+              description="The password you sign in with. Changing it keeps you signed in here."
+              footer={
+                <>
+                  <span className="type-body-sm text-text-soft">At least 8 characters, different from the current one.</span>
+                  <Button
+                    type="submit"
+                    variant={pw.current && pw.next && pw.confirm ? undefined : "secondary"}
+                    loading={changePassword.isPending}
+                    loadingLabel="Changing"
+                    disabled={!pw.current || !pw.next || !pw.confirm}
+                  >
+                    Change password
+                  </Button>
+                </>
+              }
+            >
+              <div className="flex flex-col gap-4">
+                {pwFailure && <ErrorBanner>{pwFailure}</ErrorBanner>}
+                <Field label="Current password" htmlFor="pw-current" required error={pwErrors.current}>
+                  <PasswordInput id="pw-current" autoComplete="current-password" value={pw.current} onValueChange={(v) => setPw((p) => ({ ...p, current: v }))} error={!!pwErrors.current} />
+                </Field>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <Field label="New password" htmlFor="pw-new" required error={pwErrors.next}>
+                    <PasswordInput id="pw-new" autoComplete="new-password" value={pw.next} onValueChange={(v) => setPw((p) => ({ ...p, next: v }))} error={!!pwErrors.next} />
+                  </Field>
+                  <Field label="Confirm new password" htmlFor="pw-confirm" required error={pwErrors.confirm}>
+                    <PasswordInput id="pw-confirm" autoComplete="new-password" value={pw.confirm} onValueChange={(v) => setPw((p) => ({ ...p, confirm: v }))} error={!!pwErrors.confirm} />
+                  </Field>
+                </div>
+              </div>
+            </SettingsBlock>
+          </form>
+        </TabPanel>
+
+        <TabPanel value="roles" className="pt-5">
+          <SettingsBlock icon={<Repeat />} title="Your roles" description={assignments.length > 1 ? "You hold several roles. Switch to work in another." : "The role you work in."}>
+            <ul className="m-0 flex list-none flex-col gap-2 p-0">
               {assignments.map((a) => {
                 const current = a.id === assignment?.id;
                 return (
-                  <li key={a.id} className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
+                  <li
+                    key={a.id}
+                    className={
+                      "flex flex-col gap-3 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between " +
+                      (current ? "border-accent bg-accent-soft" : "border-border")
+                    }
+                  >
                     <div className="flex min-w-0 items-center gap-3">
                       <IconTile tone={current ? "accent" : "charcoal"} size="sm">
                         {a.organization ? <Building2 /> : <ShieldCheck />}
@@ -239,19 +363,24 @@ export default function SettingsPage() {
                 );
               })}
             </ul>
-          </Section>
+          </SettingsBlock>
+        </TabPanel>
 
-          {organizationId && (
-            <Section
+        {organizationId && (
+          <TabPanel value="organization" className="pt-5">
+            <SettingsBlock
               icon={<Building2 />}
               title="Organization"
-              subtitle="Where you work. New events use its timezone and currency."
-              action={
+              description="Where you work. New events use its timezone and currency."
+              footer={
                 can("update", MODULE_CODES.ORGANIZATIONS) ? (
-                  <Button variant="secondary" onClick={() => router.push(`/admin/organizations/${organizationId}/edit`)}>
-                    Edit organization
-                    <ArrowUpRight className="size-4" />
-                  </Button>
+                  <>
+                    <span className="type-body-sm text-text-soft">You can change these as an admin.</span>
+                    <Button variant="secondary" onClick={() => router.push(`/admin/organizations/${organizationId}/edit`)}>
+                      Edit organization
+                      <ArrowUpRight className="size-4" />
+                    </Button>
+                  </>
                 ) : undefined
               }
             >
@@ -270,32 +399,16 @@ export default function SettingsPage() {
                   <Row label="Branches">{org.has_branches ? "On" : "Off: one office"}</Row>
                 </dl>
               )}
-            </Section>
-          )}
+            </SettingsBlock>
+          </TabPanel>
+        )}
 
-          <Section icon={<Palette />} title="Appearance" subtitle="How the app looks on this device.">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <span className="type-body text-text">Theme</span>
-              <ThemeSwitch />
-            </div>
-          </Section>
-
-          <Section
-            icon={<KeyRound />}
-            title="Sign-in and security"
-            subtitle="Your password belongs to your Cheche account."
-            action={
-              <Button variant="secondary" onClick={() => setSignOutOpen(true)}>
-                <LogOut className="size-4" />
-                Sign out
-              </Button>
-            }
-          >
-            <Note icon={<ShieldCheck />} className="mt-0">
-              To change your password, use &quot;Forgot password&quot; on the sign-in page: it resets it on your Cheche account. Signing out here ends your session on this device.
-            </Note>
-          </Section>
-        </div>
+        <TabPanel value="appearance" className="pt-5">
+          <SettingsBlock icon={<Palette />} title="Appearance" description="How the app looks on this device. System follows your phone or computer.">
+            <ThemeSwitch />
+          </SettingsBlock>
+        </TabPanel>
+      </Tabs>
       </div>
 
       <ConfirmDialog

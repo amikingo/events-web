@@ -25,6 +25,7 @@ import {
   Sparkles,
   Star,
   Upload,
+  UserRound,
   UserRoundCog,
   Users,
 } from "lucide-react";
@@ -308,17 +309,14 @@ function DashboardShell({ children }: { children: ReactNode }) {
                     .filter((a) => a.id !== assignment?.id)
                     .map((a) => ({ label: `Work as ${describeAssignment(a)}`, icon: <UserRoundCog />, onClick: () => void changeRole(a.id) }))
                 : []),
-              ...(DEMO_PAGES_ENABLED
-                ? [
-                    { label: "Settings", icon: <Settings />, onClick: () => router.push("/admin/settings") },
-                    { label: "Component library", icon: <Blocks />, onClick: () => router.push("/admin/components") },
-                  ]
-                : []),
+              // Your own profile and password (Phase 10), for everyone signed in.
+              { label: "My profile", icon: <UserRound />, onClick: () => router.push("/admin/settings") },
+              ...(DEMO_PAGES_ENABLED ? [{ label: "Component library", icon: <Blocks />, onClick: () => router.push("/admin/components") }] : []),
               {
                 label: "Sign out",
                 icon: <LogOut />,
                 danger: true,
-                separatorBefore: DEMO_PAGES_ENABLED,
+                separatorBefore: true,
                 // The session ends in the API client, which sends everyone listening back to sign-in.
                 onClick: async () => {
                   await logout();

@@ -6,6 +6,8 @@
  * and the sidebar leaves it out (today: the Access Control pages, whose endpoints don't exist yet).
  */
 export const MODULE_ROUTES: Record<string, string> = {
+  // Menu-only module (create it on Access › Modules: code DASHBOARD, address /dashboard, first in the menu); guarded by EVENTS.
+  "/dashboard": "/admin/dashboard",
   "/events": "/admin/events",
   // Menu-only module (create it on Access › Modules: code VENUES, address /venues); guarded by EVENTS.
   "/venues": "/admin/venues",

@@ -22,6 +22,7 @@ import {
   resendCustomerSignUpCode,
   sendCustomerCode,
   signUpCustomer,
+  updateCustomerProfile,
 } from "@/lib/api/customer";
 import { staffSession } from "@/app/auth/staff/staff-store";
 
@@ -149,6 +150,14 @@ export const attendeeAuth = {
   async getMe(signal?: AbortSignal): Promise<CustomerProfile> {
     const profile = await getCurrentCustomer(signal);
     snapshot = profile;
+    emit();
+    return profile;
+  },
+
+  /** Phase 10: change your names; the session is refreshed so every screen shows them. */
+  async updateNames(input: { firstname: string; middlename: string; lastname: string }): Promise<CustomerProfile> {
+    const profile = await updateCustomerProfile(input);
+    snapshot = currentGuestSession()?.user ?? profile;
     emit();
     return profile;
   },

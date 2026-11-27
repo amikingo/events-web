@@ -6,7 +6,7 @@ import { CheckoutForm } from "@/components/marketplace/public/checkout-form";
 import { formatPrice } from "@/lib/price";
 import { Card } from "@/components/ui/card";
 import { MonitorIcon } from "@/components/ui/icons";
-import { formatDateShort, formatMomentFull } from "@/lib/ethiopian-datetime";
+import { formatDateShort, formatMomentFull, formatMomentShort } from "@/lib/ethiopian-datetime";
 import { eventsService } from "@/lib/services/events-service";
 
 type Params = Promise<{ org: string; slug: string }>;
@@ -121,7 +121,10 @@ export default async function EventPage({ params }: { params: Params }) {
                 <ul className="m-0 mt-3 flex list-none flex-col divide-y divide-border rounded-md border border-border p-0" aria-label="Tickets">
                   {event.registration!.ticketTypes.map((t) => (
                     <li key={t.code} className="flex items-center justify-between gap-3 px-3 py-2.5">
-                      <span className="type-body text-text">{t.name}</span>
+                      <span className="flex min-w-0 flex-col">
+                        <span className="type-body text-text">{t.name}</span>
+                        {t.priceValidUntil && <span className="type-body-sm text-text-faint">Price changes {formatMomentShort(t.priceValidUntil, event.timezone)}</span>}
+                      </span>
                       <span className="type-body font-semibold text-text">{formatPrice(t.price, t.currency)}</span>
                     </li>
                   ))}
@@ -133,7 +136,7 @@ export default async function EventPage({ params }: { params: Params }) {
                 </p>
               ) : event.registration?.open ? (
                 <div className="mt-4">
-                  <CheckoutForm organizationSlug={event.registration.organizationSlug} eventSlug={event.registration.eventSlug} registration={event.registration} />
+                  <CheckoutForm timeZone={event.timezone} organizationSlug={event.registration.organizationSlug} eventSlug={event.registration.eventSlug} registration={event.registration} />
                 </div>
               ) : (
                 <p className="m-0 mt-3 type-body text-text-soft" role="status">

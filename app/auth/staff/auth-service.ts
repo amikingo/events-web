@@ -5,21 +5,6 @@ import { onSessionTerminated } from "@/lib/api-client";
 import type { StaffToken } from "@/lib/auth-token";
 import type { Role, User } from "@/types";
 
-const DEMO_USER: User = {
-  id: "usr_01",
-  name: "Abebe Bikila",
-  email: "admin@cheche.com",
-  initials: "AB",
-  role: "Admin",
-  status: "active",
-  department: "Executive Management",
-  organizationId: "ORG-101",
-  organizationName: "Example Company",
-  phone: "+251 911 204 412",
-  lastLogin: "Just now",
-  createdAt: "2026-01-01",
-};
-
 /**
  * Which accounts are staff (password sign-in) rather than attendees (code sign-in). Simulated: a work domain or a
  * listed address. A real backend answers this from the account record; keep `isStaffEmail` as the one place to ask.
@@ -92,29 +77,6 @@ class AuthService {
   /** The session ended (sign-out, or a refresh refused for good). */
   forgetProfile(): void {
     endSession();
-  }
-
-  async updateProfile(updates: Partial<User>): Promise<User> {
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    const current = this.getCurrentUser() || DEMO_USER;
-    const updated: User = { ...current, ...updates };
-
-    if (updates.name) {
-      updated.initials = updates.name
-        .split(" ")
-        .map((w) => w[0])
-        .join("")
-        .slice(0, 2)
-        .toUpperCase() || updated.initials;
-    }
-
-    staffSession.set(updated);
-    return updated;
-  }
-
-  async changePassword(_oldPassword: string, _newPassword: string): Promise<boolean> {
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    return true;
   }
 }
 

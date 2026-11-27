@@ -177,7 +177,7 @@ export interface EventRegistration {
   organizationSlug: string;
   eventSlug: string;
   /** Public ticket types with their price (a decimal string) and currency. */
-  ticketTypes: { code: string; name: string; price: string; currency: string; isFree: boolean }[];
+  ticketTypes: { code: string; name: string; price: string; currency: string; isFree: boolean; priceValidUntil: string | null }[];
   /** QUICK or DETAILED, and how a DETAILED event asks for each guest detail. */
   mode: "QUICK" | "DETAILED";
   /** Most tickets one mobile may hold at this event, across every order; null = no limit. */

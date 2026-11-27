@@ -51,6 +51,8 @@ export interface PublicTicketType {
   price: string;
   currency: string;
   is_free: boolean;
+  /** Phase 11: `price` is what a new order pays now; this is when that changes (null: it doesn't). */
+  price_valid_until: string | null;
 }
 
 export interface PublicRegistrationInput {

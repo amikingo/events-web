@@ -28,7 +28,7 @@ import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { ApiError } from "@/lib/api-client";
 import { listTicketTypes } from "@/lib/api/events";
 import type { StaffEvent } from "@/lib/api/events";
-import { describeApiError } from "@/lib/api/errors";
+import { describeApiError, paymentRequiredMessage } from "@/lib/api/errors";
 import { listPersons } from "@/lib/api/persons";
 import type { Person, RegistrationStatus } from "@/lib/api/persons";
 import {
@@ -44,6 +44,7 @@ import { formatNumber } from "@/lib/format";
 import { eventQk, personQk, registrationQk } from "@/lib/query-keys";
 import { BUYER_MOBILE_REQUIRED, nationalMobile } from "@/lib/checkout";
 import { formatPrice, isFreePrice } from "@/lib/price";
+import { useAtTime } from "@/lib/use-at-time";
 import { formatMomentShort } from "@/lib/ethiopian-datetime";
 import { ReturnTicketDialog } from "./return-ticket";
 
@@ -85,7 +86,12 @@ function RegisterForm({ event, ticketTypes, onDone }: RegisterFormProps) {
   const ticketDetails = useQuery({ queryKey: eventQk.tickets(orgId, event.id), queryFn: ({ signal }) => listTicketTypes(orgId, event.id, signal) });
   const detailsOf = (id: string) => ticketDetails.data?.find((t) => t.id === id);
   /** Paid types are issued through checkout, not here (the API answers 409 payment_required). */
-  const isPaid = (id: string) => !isFreePrice(detailsOf(id)?.price);
+  const currentPrice = (id: string) => detailsOf(id)?.effective_price ?? detailsOf(id)?.price;
+  const isPaid = (id: string) => !isFreePrice(currentPrice(id));
+  // A scheduled price starts or ends while the form is open: fetch the prices again.
+  useAtTime((ticketDetails.data ?? []).map((t) => t.price_valid_until), () => void ticketDetails.refetch());
+  /** Phase 11: the API refused because the type costs something now: offer an order instead. */
+  const [needsOrder, setNeedsOrder] = useState(false);
   const issuable = ticketTypes.filter((t) => !isPaid(t.id));
   const showTicketChoice = ticketTypes.length > 1 || issuable.length === 0;
 
@@ -126,6 +132,13 @@ function RegisterForm({ event, ticketTypes, onDone }: RegisterFormProps) {
     },
     onError: (error) => {
       const issues = error instanceof ApiError ? ((error.details as { issues?: { code?: string }[] } | undefined)?.issues ?? []) : [];
+      if (error instanceof ApiError && error.code === "payment_required") {
+        void ticketDetails.refetch();
+        setNeedsOrder(true);
+        setFailure(paymentRequiredMessage(error, (iso) => formatMomentShort(iso, event.timezone)));
+        return;
+      }
+      setNeedsOrder(false);
       setFailure(issues.some((i) => i.code === "buyer_mobile_required") ? BUYER_MOBILE_REQUIRED : describeApiError(error, "guest"));
     },
   });
@@ -164,7 +177,19 @@ function RegisterForm({ event, ticketTypes, onDone }: RegisterFormProps) {
     <Card>
       <CardHeader title="Register a guest" subtitle="They follow the same rules as the public form: the event must be open and have a place left." />
       <form onSubmit={submit} noValidate className="flex flex-col gap-4">
-        {failure && <ErrorBanner>{failure}</ErrorBanner>}
+        {failure && (
+          <ErrorBanner>
+            {failure}
+            {needsOrder && (
+              <>
+                {" "}
+                <button type="button" className="font-semibold underline" onClick={() => window.history.pushState(null, "", `/admin/events/${event.id}/issue`)}>
+                  Create an order
+                </button>
+              </>
+            )}
+          </ErrorBanner>
+        )}
         <SegmentedControl
           aria-label="Guest"
           value={mode}
@@ -261,7 +286,7 @@ function RegisterForm({ event, ticketTypes, onDone }: RegisterFormProps) {
                     onClick={() => setTicketTypeId(t.id)}
                     title={t.name}
                     subtitle={paid ? "Paid tickets go through checkout" : staffOnly ? "Staff only" : undefined}
-                    value={details ? formatPrice(details.price, details.currency) : undefined}
+                    value={details ? formatPrice(currentPrice(t.id)!, details.currency) : undefined}
                   />
                 );
               })}
@@ -338,7 +363,20 @@ export function RegistrationsTab({
         body: registration.status === "CANCELLED" ? "Their place is free again." : `Their code is still ${registration.code}.`,
       });
     },
-    onError: (error) => toast.error("Couldn't change the registration", { body: describeApiError(error, "registration") }),
+    onError: (error, { registration, to }) => {
+      if (error instanceof ApiError && error.code === "payment_required") {
+        // Phase 11: a ticket that was paid for can't come back free; otherwise its type costs something right now.
+        const paidBefore = to === "CONFIRMED" && !isFreePrice(registration.price.amount);
+        toast.error("Couldn't bring the guest back", {
+          body: paidBefore
+            ? "This ticket was paid for, so it can't come back for free. Sell a new ticket through an order."
+            : paymentRequiredMessage(error, (iso) => formatMomentShort(iso, event.timezone)),
+          actions: [{ label: "Create an order", onClick: () => window.history.pushState(null, "", `/admin/events/${event.id}/issue`) }],
+        });
+        return;
+      }
+      toast.error("Couldn't change the registration", { body: describeApiError(error, "registration") });
+    },
   });
 
   const changeTicket = useMutation({
@@ -353,6 +391,15 @@ export function RegistrationsTab({
     onError: (error, variables) => {
       refreshSummary();
       if (error instanceof ApiError) {
+        if (error.code === "payment_required") {
+          setTicketTarget(null);
+          setSelectedTicketId("");
+          toast.error(`Couldn't move to ${variables.ticketTypeName}`, {
+            body: paymentRequiredMessage(error, (iso) => formatMomentShort(iso, event.timezone)),
+            actions: [{ label: "Create an order", onClick: () => window.history.pushState(null, "", `/admin/events/${event.id}/issue`) }],
+          });
+          return;
+        }
         if (error.code === "capacity_reached" && (error.details as { scope?: string } | undefined)?.scope === "TICKET_TYPE") {
           setSelectedTicketId("");
           toast.error(`${variables.ticketTypeName} is full. Choose another one.`);

@@ -18,6 +18,11 @@ const eslintConfig = defineConfig([
     files: ["**/components/ui/**", "**/lib/use-*.ts"],
     rules: { "react-hooks/refs": "off", "react-hooks/set-state-in-effect": "off", "@next/next/no-img-element": "off" },
   },
+  // Bklit UI charts: vendored from the @bklit registry, kept as installed so they can be updated.
+  {
+    files: ["**/components/bklit/charts/**"],
+    rules: { "react-hooks/refs": "off", "react-hooks/set-state-in-effect": "off", "react-hooks/exhaustive-deps": "off", "@typescript-eslint/no-unused-vars": "off" },
+  },
 ]);
 
 export default eslintConfig;

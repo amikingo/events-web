@@ -30,7 +30,7 @@ import { useOrganization } from "@/lib/organization-context";
 import { branchQk, roleQk, staffQk } from "@/lib/query-keys";
 import { AddStaffForm } from "./add-staff-form";
 import { ChangeRoleForm } from "./change-role-form";
-import { EditNamesForm } from "./edit-names-form";
+import { EditDetailsForm } from "./edit-details-form";
 import { StaffOverridesCard } from "./staff-overrides-card";
 
 const BASE = "/admin/access/assignments";
@@ -117,8 +117,9 @@ function StaffView({ organizationId }: { organizationId: string }) {
       updateStaffProfile(organizationId, id, changes),
     onSuccess: (_res, vars) => {
       saved();
+      void queryClient.invalidateQueries({ queryKey: staffQk.account(organizationId, vars.id) });
       go(`${BASE}/${vars.id}`);
-      toast.success("Names updated");
+      toast.success("Details saved");
     },
   });
   const toggle = useMutation({
@@ -194,12 +195,13 @@ function StaffView({ organizationId }: { organizationId: string }) {
         />
       );
     }
-    if (searchParams.get("section") === "names" && canUpdate) {
+    // Edit details (Phase 10); `section=names` is the older address of the same page.
+    if ((searchParams.get("section") === "details" || searchParams.get("section") === "names") && canUpdate) {
       return (
-        <EditNamesForm
-          key={`${existing.id}-names`}
+        <EditDetailsForm
+          key={`${existing.id}-details`}
+          organizationId={organizationId}
           assignment={existing}
-          personName={nameOf(existing)}
           onCancel={() => go(`${BASE}/${existing.id}`)}
           onSubmit={async (changes) => {
             await updateProfile.mutateAsync({ id: existing.id, changes });
@@ -402,7 +404,7 @@ function StaffView({ organizationId }: { organizationId: string }) {
           ),
           primary: canUpdate && !isLastOwner(a) ? { label: "Change role", onClick: () => api.edit(a) } : undefined,
           menu: [
-            ...(canUpdate ? [{ label: "Edit names", onClick: () => go(`${BASE}/${a.id}/edit?section=names`) }] : []),
+            ...(canUpdate ? [{ label: "Edit details", onClick: () => go(`${BASE}/${a.id}/edit?section=details`) }] : []),
             ...toggleItems,
             ...deleteItems,
           ],

@@ -18,6 +18,7 @@ import { Skeleton, SkeletonStack } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toaster";
 import { ApiError } from "@/lib/api-client";
 import { DEFAULT_HOLDER_FIELDS, listTicketTypes } from "@/lib/api/events";
+import { useAtTime } from "@/lib/use-at-time";
 import type { StaffEvent } from "@/lib/api/events";
 import { describeApiError } from "@/lib/api/errors";
 import { issueTickets } from "@/lib/api/orders";
@@ -58,6 +59,8 @@ export function IssueTicketsForm({ event, onDone }: IssueTicketsFormProps) {
 
   const ticketTypes = useQuery({ queryKey: eventQk.tickets(orgId, event.id), queryFn: ({ signal }) => listTicketTypes(orgId, event.id, signal) });
   const active = (ticketTypes.data ?? []).filter((t) => t.is_active);
+  // A scheduled price starts or ends while the form is open: fetch the prices again.
+  useAtTime((ticketTypes.data ?? []).map((t) => t.price_valid_until), () => void ticketTypes.refetch());
   // Every active type can be issued; a paid order waits for the buyer to pay through Cheche Pay.
   const free = active;
 
@@ -74,7 +77,7 @@ export function IssueTicketsForm({ event, onDone }: IssueTicketsFormProps) {
   const slots = free.flatMap((t) => Array.from({ length: quantities[t.id] ?? 0 }, (_, n) => ({ slot: `${t.id}#${n}`, id: t.id, name: t.name })));
   const chosen = free.filter((t) => (quantities[t.id] ?? 0) > 0);
   // Shown only (the server works out the real total), added up in whole cents.
-  const totalCents = chosen.reduce((sum, t) => sum + toCents(t.price) * (quantities[t.id] ?? 0), 0);
+  const totalCents = chosen.reduce((sum, t) => sum + toCents(t.effective_price ?? t.price) * (quantities[t.id] ?? 0), 0);
   const currency = active[0]?.currency ?? "ETB";
   // An event with a per-mobile limit counts every ticket against a buyer mobile, so one is always needed (Phase 8).
   const capped = Boolean(event.purchase_limit_per_mobile);
@@ -87,6 +90,10 @@ export function IssueTicketsForm({ event, onDone }: IssueTicketsFormProps) {
       void queryClient.invalidateQueries({ queryKey: registrationQk.all(orgId, event.id) });
       void queryClient.invalidateQueries({ queryKey: orderQk.all(orgId, event.id) });
       setKey(newIdempotencyKey());
+      if (!replayed && toCents(order.total_amount) !== totalCents) {
+        // A scheduled price started or ended between choosing and creating: the order's own total is what's paid.
+        toast.info("The price changed while you were choosing", { body: `This order's total is ${formatPrice(order.total_amount, order.currency)}.` });
+      }
       if (replayed) toast.info("Already issued", { body: `Order ${order.reference} was issued before. Nothing changed.` });
       else if (order.status === "PENDING_PAYMENT") toast.success("Order created", { body: `Order ${order.reference} waits for payment. Give the buyer the payment link.` });
       else toast.success(order.ticket_count === 1 ? "Ticket issued" : `${order.ticket_count} tickets issued`, { body: `Order ${order.reference}.` });
@@ -243,7 +250,9 @@ export function IssueTicketsForm({ event, onDone }: IssueTicketsFormProps) {
                                 </Pill>
                               )}
                             </span>
-                            <span className="type-body-sm m-0 text-text-soft">{formatPrice(t.price, t.currency)}</span>
+                            <span className="type-body-sm m-0 text-text-soft">{formatPrice(t.effective_price ?? t.price, t.currency)}
+                              {t.price_valid_until && ` · changes ${formatMomentShort(t.price_valid_until, event.timezone)}`}
+                            </span>
                           </div>
                           {<NumberStepper aria-label={`How many ${t.name} tickets`} value={q} min={0} max={q + Math.max(0, cap - total)} onValueChange={(v) => setQuantity(t.id, v)} />}
                         </li>

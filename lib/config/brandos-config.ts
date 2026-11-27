@@ -219,7 +219,7 @@ export const activeDomain: DomainProfile = DOMAIN_PROFILES.enterprise;
  * Additional items are cleanly categorized in the secondary group or command palette.
  */
 export const TOP_LEVEL_NAV_ITEMS: NavItemConfig[] = [
-  { id: "dashboard", href: "/admin/dashboard", label: "Today", iconName: "dashboard", section: "Primary" },
+  // The Dashboard is a real module now (menu-only, address /dashboard, from `/me`), not a demo item.
   // The real Payments page (payment cases) comes from `/me` as the PAYMENTS module; only the Payouts demo is left here.
   { id: "payments", href: "/admin/payouts", label: "Payouts", iconName: "payouts", section: "Primary" },
   { id: "users", href: "/admin/users", label: "Users", iconName: "users", section: "Primary" },
@@ -232,7 +232,7 @@ export const TOP_LEVEL_NAV_ITEMS: NavItemConfig[] = [
 /** Secondary Platform Navigation (grouped below primary items) */
 export const SECONDARY_NAV_ITEMS: NavItemConfig[] = [
   { id: "notifications", href: "/admin/notifications", label: "Notifications", iconName: "notifications", section: "Platform", badgeCount: 2 },
-  { id: "settings", href: "/admin/settings", label: "Settings", iconName: "settings", section: "Platform" },
+  // Settings is "My profile" in the header's user menu (Phase 10), not a sidebar item.
   { id: "components", href: "/admin/components", label: "Components", iconName: "playground", section: "Platform" },
 ];
 
@@ -257,7 +257,7 @@ export function getDomainLabel(moduleId: string, defaultLabel: string, domainId:
 /** Command Palette search registry */
 export const COMMAND_PALETTE_ITEMS: SearchCommandItem[] = [
   // Primary
-  { id: "/admin/dashboard", moduleId: "dashboard", title: "Today — Overview & Needs Attention", group: "Navigation" },
+  { id: "/admin/dashboard", moduleId: "dashboard", title: "Dashboard: live events, sales and refunds", group: "Navigation" },
   { id: "/admin/payments", moduleId: "payments", title: "Payments: refunds and payment problems", group: "Navigation" },
   // Platform & Settings
   { id: "/admin/users", moduleId: "users", title: "Users", group: "Navigation" },
@@ -267,7 +267,7 @@ export const COMMAND_PALETTE_ITEMS: SearchCommandItem[] = [
   { id: "/admin/catalog", moduleId: "catalog", title: "Catalog", group: "Navigation" },
   { id: "/admin/payouts", moduleId: "payouts", title: "Payouts", group: "Navigation" },
   { id: "/admin/notifications", moduleId: "notifications", title: "Notification Center & Alerts", group: "Navigation" },
-  { id: "/admin/settings", moduleId: "settings", title: "Platform Settings & Security", group: "Navigation" },
+  { id: "/admin/settings", moduleId: "settings", title: "My profile: name, password, roles", group: "Navigation" },
   { id: "/admin/components", moduleId: "components", title: "Component Library", group: "Navigation" },
 ];
 
@@ -296,7 +296,7 @@ export function getBreadcrumbTrail(pathname: string): { label: string; href?: st
   const HOME = "/admin";
   const parts = pathname.split("/").filter(Boolean).slice(1);
   if (parts.length === 0 || pathname === HOME) {
-    return [{ label: "Home", href: HOME }, { label: "Today" }];
+    return [{ label: "Home", href: HOME }, { label: "Dashboard" }];
   }
 
   const trail: { label: string; href?: string }[] = [{ label: "Home", href: HOME }];
@@ -309,7 +309,10 @@ export function getBreadcrumbTrail(pathname: string): { label: string; href?: st
 
     let label = part.charAt(0).toUpperCase() + part.slice(1).replace(/-/g, " ");
     const matchingNav = ALL_NAV_ITEMS.flatMap((item) => [item, ...(item.children ?? [])]).find((item) => item.href === accumulatedPath);
-    if (matchingNav) {
+    if (accumulatedPath === "/admin/settings") {
+      // The page is "My profile" in the user menu (Phase 10).
+      label = "My profile";
+    } else if (matchingNav) {
       label = matchingNav.label;
     } else if (part === "new") {
       label = "New";

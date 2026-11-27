@@ -21,9 +21,13 @@ export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:501
 const SERVER_API_URL = (process.env.API_INTERNAL_URL ?? API_URL).replace(/\/$/, "");
 const requestBase = () => (typeof window === "undefined" ? SERVER_API_URL : API_URL);
 
-/** No token, ever: the visitor site's catalog and event pages (except guest-linked registration POST). */
+/** No token, ever: the visitor site's catalog and event pages (except the two sign-up POSTs below). */
 const PUBLIC_PATH_PREFIXES = ["/v1/public/"];
-const PUBLIC_REGISTRATION_PATH = /^\/v1\/public\/organizations\/[^/]+\/events\/[^/]+\/registrations$/;
+/**
+ * Public sign-up and checkout: a signed-in guest's token goes along, so the API takes the buyer's mobile from the
+ * account and links the tickets to it (My Tickets). Without one, the visitor is anonymous and sends a mobile.
+ */
+const PUBLIC_SIGN_UP_PATH = /^\/v1\/public\/organizations\/[^/]+\/events\/[^/]+\/(registrations|orders)$/;
 /** No Bearer token: these work from the refresh cookie (or password/code) instead. */
 const AUTH_LIFECYCLE_PATHS = [
   "/v1/auth/staff/login",
@@ -45,7 +49,7 @@ function authKindFor(path: string, method = "GET"): AuthKind {
   const bare = path.split("?")[0]!;
   if (AUTH_LIFECYCLE_PATHS.includes(bare)) return "none";
   if (bare === "/v1/auth/customer/me" || bare === "/v1/customer" || bare.startsWith("/v1/customer/")) return "guest";
-  if (method.toUpperCase() === "POST" && PUBLIC_REGISTRATION_PATH.test(bare)) return "optional-guest";
+  if (method.toUpperCase() === "POST" && PUBLIC_SIGN_UP_PATH.test(bare)) return "optional-guest";
   if (PUBLIC_PATH_PREFIXES.some((p) => bare.startsWith(p))) return "none";
   return "staff";
 }

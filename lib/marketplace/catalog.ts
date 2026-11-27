@@ -212,7 +212,7 @@ export async function loadEventDetail(organizationSlug: string, eventSlug: strin
       privacyVersion: detail.privacy_notice.version,
       organizationSlug: detail.organization.slug,
       eventSlug: detail.slug,
-      ticketTypes: detail.ticket_types.map((t) => ({ code: t.code, name: t.name, price: t.price, currency: t.currency, isFree: t.is_free })),
+      ticketTypes: detail.ticket_types.map((t) => ({ code: t.code, name: t.name, price: t.price, currency: t.currency, isFree: t.is_free, priceValidUntil: t.price_valid_until ?? null })),
       mode: detail.registration_mode,
       purchaseLimit: detail.purchase_limit_per_mobile,
       holderFields: detail.holder_fields,
